@@ -15,6 +15,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles/login.css') }}">
     <link rel="icon" href="{{ url_for('static', filename='logo2.webp') }}" type="image/webp">
     
+    <script src="https://google.com/recaptcha/api.js?render={{ site_key }}"></script>
+
     <!-- Script de detección temprana de tema oscuro (anti-FOUC) -->
     <script>
         (function() {
@@ -68,6 +70,7 @@
         <!-- Formulario de Acceso -->
         <form class="login-form" method="POST" id="loginForm">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="g-recaptcha-response" id="g-recaptcha-response">
             <div class="form-group">
                 <label for="usuario" class="form-label">Usuario</label>
                 <div class="input-wrapper">
@@ -177,10 +180,28 @@
             // 3. Estado de envío en botón
             const form = document.getElementById('loginForm');
             const btn = document.getElementById('btnLogin');
+            const captcha = document.getElementById('g-recaptcha-response')
             if (form && btn) {
-                form.addEventListener('submit', () => {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
                     btn.disabled = true;
                     btn.querySelector('.btn-text').textContent = 'Ingresando...';
+
+
+                    grecaptcha.ready(() => {
+                        grecaptcha.execute('{{ site_key }}', { action: 'login' })
+                            .then((token) => {
+                                captcha.value = token;
+                                form.submit();
+                            })
+                            .catch((error) => {
+                                console.error("Error al obtener reCAPTCHA:", error);
+                                btn.disabled = false;
+                                btn.querySelector('.btn-text').textContent = 'Ingresar al Sistema';
+                            });
+                    });
+
+
                 });
             }
         });
