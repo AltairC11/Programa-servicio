@@ -459,7 +459,8 @@
 }
 
 .btn-icon-wa,
-.btn-icon-call {
+.btn-icon-call,
+.btn-icon-edit {
   width: 2.1rem;
   height: 2.1rem;
   border-radius: 50%;
@@ -488,6 +489,17 @@
 
 .btn-icon-call:hover {
   background: var(--detail-accent);
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+.btn-icon-edit {
+  background: rgba(115, 92, 0, 0.12);
+  color: #735c00;
+}
+
+.btn-icon-edit:hover {
+  background: #735c00;
   color: #ffffff;
   transform: scale(1.1);
 }

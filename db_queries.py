@@ -1178,10 +1178,23 @@ def insertar_red(cursor: Cursor, nombre, supervisor_id):
 
 def obtener_red_por_id(cursor: Cursor, red_id):
     """
-    Obtiene una red ministerial por su ID.
+    Obtiene una red ministerial por su ID con el conteo de Casas de Paz vinculadas.
     """
-    cursor.execute("SELECT * FROM red WHERE id = %s", (red_id,))
+    query = """
+        SELECT r.*, 
+        (SELECT COUNT(*) FROM cdp WHERE red_id = r.id) AS total_casas
+        FROM red r
+        WHERE r.id = %s
+    """
+    cursor.execute(query, (red_id,))
     return cursor.fetchone()
+
+def get_redes_activas_select(cursor: Cursor):
+    """
+    Retorna todas las redes activas para el selector <select name="red_id"> de las Casas de Paz.
+    """
+    cursor.execute("SELECT id FROM red WHERE is_active = 1 ORDER BY nombre ASC")
+    return cursor.fetchall() or []
 
 
 def actualizar_red(cursor: Cursor, red_id, nombre, supervisor_id):
@@ -1282,4 +1295,95 @@ def asignar_usuario_a_cdp(cursor, usuario_id, cdp_id):
     )
     return cursor.rowcount > 0
 
+def insertar_cdp(cursor: Cursor, codigo: str, anfitrion: str, direccion: str, telefono: str, red_id: int, usuario_id: str = None):
+    """
+    Inserta una nueva Casa de Paz vinculada a una red y a su usuario de acceso.
+    """
+    query = """
+        INSERT INTO cdp (codigo, anfitrion, direccion, is_active, telefono, red_id, usuario_id) 
+        VALUES (%s, %s, %s, 1, %s, %s, %s)
+    """
+    cursor.execute(query, (codigo.strip(), anfitrion.strip(), direccion.strip(), telefono.strip(), red_id, usuario_id))
+    return cursor.lastrowid()
+
+def obtener_cdp_admin(cursor: Cursor, cdp_id: int):
+    """
+    Obtiene los datos completos de una CDP incluyendo los datos del usuario asignado.
+    """
+    query = """
+        SELECT c.id, c.codigo, c.anfitrion, c.telefono, c.direccion, c.is_active, c.red_id, c.usuario_id, u.username, r.nombre as red_nombre
+        FROM cdp c
+        LEFT JOIN usuario u ON c.usuario_id = u.id
+        LEFT JOIN red r ON c.red_id = r.id
+        WHERE id = %s
+    """
+
+    cursor.execute(query, (cdp_id,))
+    return cursor.fetchone()
+
+def actualizar_cdp_admin(cursor: Cursor, cdp_id: int, codigo: str, anfitrion: str, telefono: str, direccion:str, red_id:int):
+    """
+    Actualiza la información física y organizativa de la Casa de Paz.
+    """
+    query = """
+    UPDATE cdp 
+    SET codigo = %s, anfitrion = %s, telefono = %s, direccion = %s, red_id = %s
+    WHERE id = %s
+    """
+
+    cursor.execute(query, (codigo.strip(), anfitrion.strip(), telefono.strip(), direccion.strip(), red_id, cdp_id))
+    return cursor.rowcount >= 0
+
+def eliminar_pausar_cdp(cursor: Cursor, cdp_id: int) -> tuple[bool, str, str]:
+    """
+    Gestiona la baja de una Casa de Paz preservando la integridad:
+    - Validación 1: Si tiene líderes asignados, BLOQUEA la acción exigiendo su reasignación previa.
+    - Validación 2: Si tiene reportes históricos, realiza soft delete (is_active = 0) en CDP y usuario.
+    - Si NO tiene reportes ni líderes: Realiza eliminación física completa (CDP y usuario de acceso).
     
+    Retorna: (éxito: bool, acción: 'bloqueada' | 'pausada' | 'eliminada' | 'error', mensaje: str)
+    """
+    # 1. Obtener usuario_id asociado a la CDP
+    cursor.execute("SELECT usuario_id, codigo FROM cdp WHERE id = %s", (cdp_id,))
+    cdp = cursor.fetchone()
+
+    if not cdp:
+        return False, 'error', "La casa de paz no existe."
+
+    codigo_cdp = cdp.get('codigo')
+    usuario_id = cdp.get('usuario_id')
+
+    # 2. Verificar si tiene lideres asignados
+    cursor.execute('SELECT COUNT(*) AS total FROM lider WHERE cdp_id = %s', (cdp_id,))
+    total_lideres = cursor.fetchone()['total']
+
+    if total_lideres > 0:
+        return(
+            False, 
+            'bloqueada',
+            f"No se puede dar de baja la Casa de Paz '{codigo_cdp}' porque tiene {total_lideres} líder(es) asignado(s). "
+            f"Reasígnalos a otra Casa desde el botón de edición antes de continuar."
+        )
+
+    # 3. Verificar si tiene reportes históricos
+    cursor.execute("SELECT COUNT(*) AS total FROM reporte WHERE cdp_id = %s", (cdp_id,))
+    total_reportes = cursor.fetchone()['total']
+
+    if total_reportes > 0:
+        # --- CASO A: TIENE HISTORIAL -> DESACTIVACIÓN LÓGICA ---
+        cursor.execute('UPDATE cdp SET is_active = 0 WHERE id = %s', (cdp_id,))
+
+        if usuario_id:
+            cursor.execute("UPDATE usuario SET is_active = 0 WHERE id = %s", (usuario_id,))
+
+        return True, 'pausada', f"La Casa de Paz '{codigo_cdp}' tiene {total_reportes} reportes históricos. Ha sido pausada y su acceso desactivado para proteger las estadísticas."
+
+    else:
+        # --- CASO B: NO TIENE HISTORIAL -> ELIMINACIÓN FÍSICA LIMPIA ---
+        # 1. Eliminar la CDP
+        cursor.execute('DELETE FROM cdp WHERE id = %s', (cdp_id,)) 
+        # 2. Eliminar el usuario de acceso para liberar el username
+        if usuario_id:
+            cursor.execute('DELETE FROM usuario WHERE id = %s', (usuario_id,))
+
+        return True, 'eliminada', f"La Casa de Paz '{codigo_cdp}' y su cuenta de acceso han sido eliminadas permanentemente."

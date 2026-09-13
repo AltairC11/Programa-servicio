@@ -3,6 +3,7 @@ Rutas del administrador: /admin/...
 """
 from flask import Blueprint, render_template, request, session, redirect, url_for, flash
 from database import get_db_connection
+from db_queries import eliminar_pausar_cdp
 from utils.auth import login_required, role_required
 from services.dashboard_service import get_dashboard_context, get_estructura_context
 from services.user_service import get_usuarios_context
@@ -151,6 +152,36 @@ def lider_editar(id):
     return render_template('form_lider.html', title='Líderes', breadcrumb='Lider', link='lider', recurso_id=id, is_edit=True)
 
 
+@admin_bp.route('/lider/<int:id>/eliminar', methods=['POST'])
+@login_required
+@role_required("admin")
+def lider_eliminar(id):
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT nombre, apellido FROM lider WHERE id = %s", (id,))
+                lider_row = cursor.fetchone()
+                if not lider_row:
+                    flash("El líder no existe o ya fue eliminado.", "warning")
+                    return redirect(url_for('admin.lider'))
+                
+                nombre_completo = f"{lider_row.get('nombre', '')} {lider_row.get('apellido', '')}".strip()
+                cursor.execute("DELETE FROM lider WHERE id = %s", (id,))
+            conn.commit()
+            flash(f"Líder '{nombre_completo}' eliminado exitosamente.", "success")
+        except Exception as e:
+            conn.rollback()
+            print(f"[ERROR] Error al eliminar líder: {e}")
+            flash("Error al eliminar el líder de la base de datos.", "danger")
+        finally:
+            conn.close()
+    else:
+        flash("No se pudo conectar a la base de datos.", "danger")
+
+    return redirect(url_for('admin.lider'))
+
+
 @admin_bp.route('/casa_de_paz/crear')
 @login_required
 @role_required("admin")
@@ -173,6 +204,11 @@ def casa_de_paz(id):
 def casa_de_paz_editar(id):
     return render_template('form_cdp.html', title='Casas de Paz', breadcrumb='Casa de paz', link='casa_de_paz', recurso_id=id, is_edit=True)
 
+@admin_bp.route('/casa_de_paz/<id>/eliminar', methods=['POST'])
+@login_required
+@role_required('admin')
+def casa_de_paz_eliminar(id):
+    exito, accion, mensaje = eliminar_pausar_cdp()
 
 @admin_bp.route('/red/crear', methods=['GET', 'POST'])
 @login_required

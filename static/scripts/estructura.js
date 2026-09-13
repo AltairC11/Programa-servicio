@@ -37,26 +37,67 @@
     applyRedFilter(document.querySelector('[data-red-filter].active')?.dataset.redFilter || 'all');
 
     const menuTriggers = document.querySelectorAll('.menu-trigger');
+    const redesList = document.querySelector('.redes-list');
+    let activeMenuData = null;
+
     function closeMenus() {
-        document.querySelectorAll('.red-card.menu-open').forEach(card => card.classList.remove('menu-open'));
-        menuTriggers.forEach(trigger => trigger.setAttribute('aria-expanded', 'false'));
+        if (activeMenuData) {
+            const { menu, card, trigger } = activeMenuData;
+            menu.classList.remove('is-open');
+            menu.style.display = 'none';
+            card.classList.remove('menu-open');
+            card.appendChild(menu);
+            trigger.setAttribute('aria-expanded', 'false');
+            activeMenuData = null;
+        }
     }
 
     menuTriggers.forEach(trigger => {
         trigger.addEventListener('click', event => {
             event.stopPropagation();
             const card = trigger.closest('.red-card');
-            const willOpen = !card.classList.contains('menu-open');
-            closeMenus();
-            if (willOpen) {
-                card.classList.add('menu-open');
-                trigger.setAttribute('aria-expanded', 'true');
+            if (!card) return;
+
+            // Si este mismo menú ya está abierto, cerrarlo
+            if (activeMenuData && activeMenuData.trigger === trigger) {
+                closeMenus();
+                return;
             }
+
+            // Cerrar cualquier otro menú abierto
+            closeMenus();
+
+            const menu = card.querySelector('.red-menu');
+            if (!menu) return;
+
+            // Guardar datos y mover a document.body para que flote sobre todo sin ser cortado ni afectar el scroll
+            const rect = trigger.getBoundingClientRect();
+            document.body.appendChild(menu);
+
+            menu.style.position = 'fixed';
+            menu.style.top = `${rect.bottom + 4}px`;
+            menu.style.left = 'auto';
+            menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+            menu.style.display = 'grid';
+            menu.classList.add('is-open');
+
+            card.classList.add('menu-open');
+            trigger.setAttribute('aria-expanded', 'true');
+
+            activeMenuData = { menu, card, trigger };
         });
     });
 
+    if (redesList) {
+        redesList.addEventListener('scroll', closeMenus, { passive: true });
+    }
+    window.addEventListener('scroll', closeMenus, { passive: true });
+    window.addEventListener('resize', closeMenus, { passive: true });
+
     document.addEventListener('click', event => {
-        if (!event.target.closest('.red-card')) closeMenus();
+        if (activeMenuData && !activeMenuData.menu.contains(event.target) && !activeMenuData.trigger.contains(event.target)) {
+            closeMenus();
+        }
     });
 
     document.addEventListener('keydown', event => {

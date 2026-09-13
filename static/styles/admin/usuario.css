@@ -1409,8 +1409,6 @@ body {
 [data-theme="dark"] .action-btn.btn-delete:hover {
     background-color: rgba(255, 180, 171, 0.18);
     color: var(--error, #ffb4ab);
-    border: 1px solid rgba(255, 180, 171, 0.25);
-    box-shadow: 0 2px 8px rgba(255, 84, 73, 0.2);
 }
 
 [data-theme="dark"] .btn-delete:hover .material-symbols-outlined,

@@ -229,5 +229,65 @@ document.addEventListener('DOMContentLoaded', () => {
         printWindow.document.write(html);
         printWindow.document.close();
     }
+
+    // 3. Modal de Eliminación de Líder
+    const deleteModal = document.getElementById('deleteModal');
+    const deleteInput = document.getElementById('deleteInput');
+    const deleteLeaderName = document.getElementById('deleteLeaderName');
+    const deleteLeaderForm = document.getElementById('deleteLeaderForm');
+    const btnConfirmDelete = document.getElementById('btnConfirmDelete');
+    let activeDeleteBtn = null;
+
+    document.querySelectorAll('.btn-delete').forEach(btn => {
+        btn.addEventListener('click', function() {
+            activeDeleteBtn = this;
+            const liderId = this.getAttribute('data-id');
+            const liderNombre = this.getAttribute('data-nombre');
+
+            if (deleteLeaderName) deleteLeaderName.textContent = liderNombre || 'este líder';
+            if (deleteLeaderForm) deleteLeaderForm.action = `/admin/lider/${liderId}/eliminar`;
+
+            if (deleteModal) {
+                deleteModal.style.display = 'flex';
+                deleteModal.setAttribute('aria-hidden', 'false');
+                if (deleteInput) {
+                    deleteInput.value = '';
+                    deleteInput.focus();
+                }
+                if (btnConfirmDelete) {
+                    btnConfirmDelete.disabled = true;
+                }
+            }
+        });
+    });
+
+    if (deleteInput && btnConfirmDelete) {
+        deleteInput.addEventListener('input', function() {
+            btnConfirmDelete.disabled = this.value.trim().toUpperCase() !== 'ELIMINAR';
+        });
+    }
+
+    window.closeDeleteModal = function() {
+        if (deleteModal) {
+            deleteModal.style.display = 'none';
+            deleteModal.setAttribute('aria-hidden', 'true');
+        }
+        if (activeDeleteBtn) {
+            activeDeleteBtn.focus();
+            activeDeleteBtn = null;
+        }
+    };
+
+    if (deleteModal) {
+        deleteModal.addEventListener('click', (e) => {
+            if (e.target === deleteModal) window.closeDeleteModal();
+        });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && deleteModal && deleteModal.style.display === 'flex') {
+            window.closeDeleteModal();
+        }
+    });
 });
 

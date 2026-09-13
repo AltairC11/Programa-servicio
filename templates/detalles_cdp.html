@@ -197,6 +197,11 @@
                 <span class="material-symbols-outlined" aria-hidden="true">call</span>
               </a>
               {% endif %}
+              {% if has_role("admin") %}
+              <a href="{{ url_for('admin.lider_editar', id=miembro.id) }}" class="btn-icon-edit" aria-label="Editar o reasignar a {{ miembro.nombre_completo }}" title="Editar o Reasignar Líder">
+                <span class="material-symbols-outlined" aria-hidden="true">edit</span>
+              </a>
+              {% endif %}
             </div>
           </div>
           {% endfor %}
