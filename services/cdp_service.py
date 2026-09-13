@@ -1,12 +1,20 @@
 """
 Servicio de Casa de Paz (CDP) - Lógica de negocio para reportes y perfiles.
 """
-from flask import request
+import uuid
+
+from flask import current_app, request
 from database import get_db_connection
 from utils.cache import invalidate_dashboard_cache
 import db_queries
 
 from werkzeug.security import generate_password_hash, check_password_hash
+from utils.validators import (
+    validate_username,
+    validate_password_strength,
+    validate_person_name,
+    validate_phone
+)
 
 class ProcessReporteResult(tuple):
     """Tupla (success, message) que evalúa a booleano según success."""
@@ -507,13 +515,18 @@ def get_cdp_detalle(cdp_id):
     if conn:
         try:
             with conn.cursor() as cur:
-                # 1. Datos básicos de la CDP
+                # 1. Datos básicos de la CDP y usuario del sistema asignado
                 cur.execute("""
-                    SELECT c.id, c.codigo, c.anfitrion, c.direccion, c.red_id,
+                    SELECT c.id, c.codigo, c.anfitrion, c.direccion, c.telefono, c.red_id, c.is_active, c.usuario_id,
                            r.nombre AS red_nombre,
+                           u.username AS usuario_username,
+                           u.nombre AS usuario_nombre,
+                           u.apellido AS usuario_apellido,
+                           u.is_active AS usuario_is_active,
                            COALESCE(CONCAT(u_sup.nombre, ' ', u_sup.apellido), 'Sin asignar') AS supervisor_nombre
                     FROM cdp c
                     LEFT JOIN red r ON c.red_id = r.id
+                    LEFT JOIN usuario u ON c.usuario_id = u.id
                     LEFT JOIN usuario u_sup ON r.supervisor_id = u_sup.id
                     WHERE c.id = %s
                 """, (cdp_id,))
@@ -549,25 +562,87 @@ def get_cdp_detalle(cdp_id):
                         elif len(tel_clean) == 10 and not tel_clean.startswith('58'):
                             tel_wa = '58' + tel_clean
                         else:
-                            tel_wa = tel_clean
+                            tel_wa = tel_clean if len(tel_clean) >= 8 else None
 
                         team.append({
                             'id': l['id'],
                             'nombre_completo': f"{nom} {ape}".strip() or 'Líder',
                             'rol': l.get('rol', 'Líder'),
                             'telefono': tel,
-                            'telefono_wa': tel_wa if len(tel_wa) >= 8 else None,
+                            'telefono_wa': tel_wa,
                             'iniciales': ini
                         })
                     
-                    # Líder principal
+                    # Líder principal (de la tabla lider)
                     lider_principal = team[0]['nombre_completo'] if team else 'Sin líder asignado'
-                    telefono_contacto = team[0]['telefono'] if (team and team[0]['telefono']) else 'No registrado'
-                    telefono_wa = team[0]['telefono_wa'] if (team and team[0].get('telefono_wa')) else None
+                    
+                    # Teléfono propio de la Casa de Paz
+                    tel_cdp = (cdp.get('telefono') or '').strip()
+                    if tel_cdp and tel_cdp != 'No registrado':
+                        telefono_contacto = tel_cdp
+                        tel_cdp_clean = re.sub(r'\D', '', tel_cdp)
+                        if tel_cdp_clean.startswith('0'):
+                            telefono_wa = '58' + tel_cdp_clean[1:]
+                        elif len(tel_cdp_clean) == 10 and not tel_cdp_clean.startswith('58'):
+                            telefono_wa = '58' + tel_cdp_clean
+                        else:
+                            telefono_wa = tel_cdp_clean if len(tel_cdp_clean) >= 8 else None
+                    else:
+                        telefono_contacto = 'No registrado'
+                        telefono_wa = None
                     
                     # Dirección y query para Google Maps
                     direccion = cdp.get('direccion') or 'Sector Central'
                     maps_query = urllib.parse.quote_plus(f"{direccion}, Venezuela")
+
+                    # Horario real derivado de los reportes (o base oficial: Miércoles · 7:00 PM)
+                    hr_ini = reportes_historial[0].get('hr_inicio') if reportes_historial else None
+                    fecha_val = reportes_historial[0].get('fecha') if reportes_historial else None
+                    horario = db_queries.formatear_horario_cdp(hr_ini, fecha_val)
+
+                    # Estado real de la Casa de Paz
+                    is_active = bool(cdp.get('is_active', 1)) if cdp.get('is_active') is not None else True
+                    estado = 'activa' if is_active else 'inactiva'
+
+                    # Ventana móvil de los últimos 7 días para estado de reporte
+                    from datetime import date, timedelta
+                    hoy = date.today()
+                    hace_7_dias = hoy - timedelta(days=7)
+                    ultimo_rep = reportes_historial[0] if reportes_historial else None
+                    ultimo_reporte_fecha = None
+                    dias_desde_ultimo_reporte = None
+                    tiene_reporte_reciente = False
+
+                    if ultimo_rep and ultimo_rep.get('fecha'):
+                        u_f = ultimo_rep['fecha']
+                        if hasattr(u_f, 'date'):
+                            u_f_date = u_f.date()
+                        elif isinstance(u_f, date):
+                            u_f_date = u_f
+                        elif isinstance(u_f, str):
+                            try:
+                                u_f_date = date.fromisoformat(u_f[:10])
+                            except Exception:
+                                u_f_date = None
+                        else:
+                            u_f_date = None
+
+                        if u_f_date:
+                            dias_desde_ultimo_reporte = (hoy - u_f_date).days
+                            if u_f_date >= hace_7_dias:
+                                tiene_reporte_reciente = True
+
+                        ultimo_reporte_fecha = ultimo_rep.get('fecha_formateada') or str(ultimo_rep.get('fecha') or '')
+
+                    if not is_active:
+                        estado_reporte_7d = 'pausada'
+                        reporte_reciente_7d = False
+                    elif tiene_reporte_reciente:
+                        estado_reporte_7d = 'al_dia'
+                        reporte_reciente_7d = True
+                    else:
+                        estado_reporte_7d = 'pendiente'
+                        reporte_reciente_7d = False
 
                     return {
                         'id': cdp['id'],
@@ -582,8 +657,18 @@ def get_cdp_detalle(cdp_id):
                         'lider_nombre': lider_principal,
                         'telefono': telefono_contacto,
                         'telefono_wa': telefono_wa,
-                        'estado': 'activa',
-                        'horario': 'Martes · 7:30 PM',
+                        'is_active': is_active,
+                        'estado': estado,
+                        'reporte_reciente_7d': reporte_reciente_7d,
+                        'estado_reporte_7d': estado_reporte_7d,
+                        'ultimo_reporte_fecha': ultimo_reporte_fecha,
+                        'dias_desde_ultimo_reporte': dias_desde_ultimo_reporte,
+                        'horario': horario,
+                        'usuario_id': cdp.get('usuario_id'),
+                        'usuario_username': cdp.get('usuario_username'),
+                        'usuario_nombre': cdp.get('usuario_nombre') or '',
+                        'usuario_apellido': cdp.get('usuario_apellido') or '',
+                        'usuario_activo': bool(cdp.get('usuario_is_active', 1)) if cdp.get('usuario_is_active') is not None else True,
                         'asistencia_promedio': metricas.get('asistencia_promedio', 0),
                         'total_reportes': metricas.get('total_reportes', 0),
                         'ofrendas_usd_totales': metricas.get('ofrendas_usd_totales', 0.0),
@@ -603,3 +688,432 @@ def get_cdp_detalle(cdp_id):
     # Mock / Demo fallback cuando DB no está conectada o no existe el id
     from mock_data import get_mock_cdp_detalle
     return get_mock_cdp_detalle(cdp_id)
+
+def get_lideres_cdp_disponibles_servicio(cdp_id=None):
+    """
+    Obtiene los usuarios con rol 'lider_cdp' disponibles para asignación a una Casa de Paz.
+    Incluye al líder actualmente asignado si cdp_id es provisto (para edición).
+    """
+    conn = get_db_connection()
+    if not conn:
+        from services.dashboard_service import mock_mode_enabled
+        if mock_mode_enabled():
+            from mock_data import get_mock_usuarios, get_casas_demo
+            usuarios = get_mock_usuarios()
+            casas = get_casas_demo()
+            asignados_ids = {str(c.get('lider_id')) for c in casas if c.get('lider_id')}
+            return [
+                {
+                    'id': u['id'],
+                    'nombre': u['nombre'],
+                    'apellido': u['apellido'],
+                    'username': u['username']
+                }
+                for u in usuarios
+                if u.get('rol') in ('lider_cdp', 'cdp') and (
+                    str(u['id']) not in asignados_ids or (cdp_id and str(u.get('cdp_id')) == str(cdp_id))
+                )
+            ]
+        return []
+
+    try:
+        with conn.cursor() as cursor:
+            return db_queries.get_lideres_cdp_disponibles(cursor, cdp_id=cdp_id)
+    except Exception as e:
+        current_app.logger.error("Error al obtener líderes CDP disponibles: %s", e)
+        return []
+    finally:
+        conn.close()
+
+def crear_cdp_servicio(form_data: dict) -> tuple[bool, str]:
+    """
+    Crea la cuenta de usuario líder o asigna un usuario existente y registra la nueva Casa de Paz de forma transaccional.
+    """
+    codigo = form_data.get('codigo', '').strip()
+    anfitrion = form_data.get('anfitrion', '').strip()
+    telefono_raw = form_data.get('telefono', '').strip()
+    direccion = form_data.get('direccion', '').strip()
+    red_id_raw = form_data.get('red_id', '').strip()
+
+    modo_usuario = form_data.get('modo_usuario', 'nuevo').strip()
+    usuario_existente_id = form_data.get('usuario_existente_id', '').strip()
+
+    # Credenciales y datos del usuario (si es nuevo)
+    nombre_user = form_data.get('nombre', '').strip()
+    apellido_user = form_data.get('apellido', '').strip()
+    username_raw = form_data.get('username', '').strip()
+    password_raw = form_data.get('password', '').strip()
+
+    # 1. Validaciones de datos de la Casa
+    if not codigo or len(codigo) < 2:
+        return False, "El código de la Casa de Paz debe tener al menos 2 caracteres."
+    if not direccion or len(direccion) < 5:
+        return False, "Debe indicar una dirección física válida."
+
+    ok_anf, res_anfitrion = validate_person_name(anfitrion, "Anfitrión")
+    if not ok_anf:
+        return False, res_anfitrion
+
+    ok_tel, res_tel, err_tel = validate_phone(telefono_raw)
+    if not ok_tel:
+        return False, err_tel
+
+    try:
+        red_id = int(red_id_raw)
+    except (ValueError, TypeError):
+        return False, "Debe seleccionar una Red Ministerial válida."
+
+    # Determinar si se asigna un usuario existente
+    es_modo_existente = (modo_usuario == 'existente') or (bool(usuario_existente_id) and not username_raw)
+
+    if es_modo_existente:
+        if not usuario_existente_id:
+            return False, "Debe seleccionar un usuario líder para la Casa de Paz."
+    else:
+        # 2. Validaciones de credenciales de usuario nuevo
+        ok_user, res_user = validate_username(username_raw)
+        if not ok_user:
+            return False, res_user
+
+        ok_pass, err_pass = validate_password_strength(password_raw)
+        if not ok_pass:
+            return False, err_pass
+
+        ok_nom, res_nom = validate_person_name(nombre_user, 'Nombre del Responsable')
+        if not ok_nom:
+            return False, res_nom
+        
+        ok_apellido, res_apellido = validate_person_name(apellido_user, 'Apellido del Responsable')
+        if not ok_apellido:
+            return False, res_apellido  
+    
+    conn = get_db_connection()
+    if not conn:
+        return False, "Error de conexión a la base de datos."
+
+    try:
+        with conn.cursor() as cursor:
+            # 3. Validar código único de CDP
+            cursor.execute("SELECT id FROM cdp WHERE codigo = %s", (codigo,))
+            if cursor.fetchone():
+                return False, f"Ya existe una Casa de Paz con el código '{codigo}'."
+
+            if es_modo_existente:
+                # 4. Validar existencia y disponibilidad del usuario existente
+                cursor.execute("""
+                    SELECT id, username, tipo_usuario, is_active 
+                    FROM usuario 
+                    WHERE id = %s
+                """, (usuario_existente_id,))
+                user_row = cursor.fetchone()
+                if not user_row:
+                    return False, "El usuario seleccionado no existe."
+                if user_row.get('tipo_usuario') != 'lider_cdp':
+                    return False, "El usuario seleccionado no tiene el rol de líder de Casa de Paz."
+                if not user_row.get('is_active', 1):
+                    return False, "El usuario seleccionado se encuentra inactivo."
+
+                cursor.execute("SELECT id, codigo FROM cdp WHERE usuario_id = %s", (usuario_existente_id,))
+                cdp_ocupada = cursor.fetchone()
+                if cdp_ocupada:
+                    return False, f"El usuario '@{user_row.get('username')}' ya está asignado a la Casa de Paz '{cdp_ocupada.get('codigo')}'."
+
+                id_usuario_final = usuario_existente_id
+                username_final = user_row.get('username', '')
+            else:
+                # 4. Validar username único
+                cursor.execute("SELECT id FROM usuario WHERE username = %s", (res_user,))
+                if cursor.fetchone():
+                    return False, f"El nombre de usuario '{res_user}' ya está en uso."
+
+                # 5. Insertar primero el Usuario nuevo
+                nuevo_user_id = str(uuid.uuid4())
+                pass_hash = generate_password_hash(password_raw)
+
+                cursor.execute("""
+                    INSERT INTO usuario (id, username, password, tipo_usuario, is_active, nombre, apellido)
+                    VALUES (%s, %s, %s, 'lider_cdp', 1, %s, %s)
+                """, (nuevo_user_id, res_user, pass_hash, res_nom, res_apellido))
+
+                id_usuario_final = nuevo_user_id
+                username_final = res_user
+
+            # 6. Insertar Casa de Paz vinculada al usuario
+            db_queries.insertar_cdp(cursor, codigo, res_anfitrion, direccion, res_tel, red_id, id_usuario_final)
+
+            conn.commit()
+            try:
+                invalidate_dashboard_cache()
+            except Exception:
+                pass
+
+            if es_modo_existente:
+                return True, f"Casa de Paz '{codigo}' creada y asignada exitosamente al líder '@{username_final}'."
+            else:
+                return True, f"Casa de Paz '{codigo}' y usuario '@{username_final}' creados exitosamente."
+        
+    except Exception as e:
+        conn.rollback()
+        current_app.logger.error("Error al crear CDP: %s", e)
+        return False, f"Error interno al registrar la Casa de Paz: {e}"
+    finally:
+        conn.close()
+
+def actualizar_cdp_servicio(cdp_id: int, form_data: dict) -> tuple[bool, str]: 
+    """Actualiza los datos de la Casa de Paz y del usuario líder vinculado."""
+
+    try:
+        cdp_id = int(cdp_id)
+    except (ValueError, TypeError):
+        return False, "Identificador de Casa de Paz no válido."
+
+    codigo = form_data.get('codigo', '').strip()
+    anfitrion = form_data.get('anfitrion', '').strip()
+    telefono_raw = form_data.get('telefono', '').strip()
+    direccion = form_data.get('direccion', '').strip()
+    red_id_raw = form_data.get('red_id', '').strip()
+
+    modo_usuario = form_data.get('modo_usuario', '').strip()
+    usuario_existente_id = form_data.get('usuario_existente_id', '').strip()
+
+    nombre_user = form_data.get('nombre', '').strip()
+    apellido_user = form_data.get('apellido', '').strip()
+    username_raw = form_data.get('username', '').strip()
+    password_nueva = form_data.get('password', '').strip()
+
+    # 1. Validaciones de datos de la Casa
+    if not codigo or len(codigo) < 2:
+        return False, "El código de la Casa de Paz debe tener al menos 2 caracteres."
+    if not direccion or len(direccion) < 5:
+        return False, "Debe indicar una dirección física válida."
+
+    ok_anf, res_anf = validate_person_name(anfitrion, "Anfitrión")
+    if not ok_anf:
+        return False, res_anf
+
+    ok_tel, res_tel, err_tel = validate_phone(telefono_raw)
+    if not ok_tel:
+        return False, err_tel
+
+    try:
+        red_id = int(red_id_raw)
+    except (ValueError, TypeError):
+        return False, "Debe seleccionar una Red Ministerial válida."
+
+    es_modo_existente = (modo_usuario == 'existente') or (bool(usuario_existente_id) and not username_raw)
+
+    if not es_modo_existente and (username_raw or nombre_user or apellido_user):
+        # 2. Validaciones de credenciales de usuario
+        ok_nom, res_nom = validate_person_name(nombre_user, 'Nombre del Responsable')
+        if not ok_nom:
+            return False, res_nom
+
+        ok_ape, res_ape = validate_person_name(apellido_user, 'Apellido del Responsable')
+        if not ok_ape:
+            return False, res_ape
+
+        ok_user, res_user = validate_username(username_raw)
+        if not ok_user:
+            return False, res_user
+
+        if password_nueva:
+            ok_pass, err_pass = validate_password_strength(password_nueva)
+            if not ok_pass:
+                return False, err_pass
+    elif es_modo_existente and not usuario_existente_id:
+        return False, "Debe seleccionar un usuario líder para la Casa de Paz."
+
+    conn = get_db_connection()
+    if not conn:
+        return False, "Error de conexión a la base de datos."
+
+    try:
+        with conn.cursor() as cursor:
+            # Comprobar que existe la Casa de Paz
+            cursor.execute("SELECT id, usuario_id FROM cdp WHERE id = %s", (cdp_id,))
+            fila_cdp = cursor.fetchone()
+            if not fila_cdp:
+                return False, "La Casa de Paz no existe."
+
+            user_id = fila_cdp.get('usuario_id')
+
+            # Comprobar duplicado de código en otra CDP
+            cursor.execute("SELECT id FROM cdp WHERE codigo = %s AND id != %s", (codigo, cdp_id))
+            if cursor.fetchone():
+                return False, f"Ya existe otra Casa de Paz con el código '{codigo}'."
+
+            # Actualizar datos de la Casa
+            db_queries.actualizar_cdp_admin(cursor, cdp_id, codigo, res_anf, res_tel, direccion, red_id)
+
+            if es_modo_existente:
+                # Comprobar que el usuario existente sea válido
+                cursor.execute("SELECT id, username, tipo_usuario, is_active FROM usuario WHERE id = %s", (usuario_existente_id,))
+                user_existente = cursor.fetchone()
+                if not user_existente:
+                    return False, "El usuario seleccionado no existe."
+                if user_existente.get('tipo_usuario') != 'lider_cdp':
+                    return False, "El usuario seleccionado no tiene el rol de líder de Casa de Paz."
+                if not user_existente.get('is_active', 1):
+                    return False, "El usuario seleccionado se encuentra inactivo."
+
+                # Comprobar que no esté asignado a otra CDP distinta a la actual
+                cursor.execute("SELECT id, codigo FROM cdp WHERE usuario_id = %s AND id != %s", (usuario_existente_id, cdp_id))
+                cdp_otra = cursor.fetchone()
+                if cdp_otra:
+                    return False, f"El usuario '@{user_existente.get('username')}' ya está asignado a otra Casa de Paz ('{cdp_otra.get('codigo')}')."
+
+                cursor.execute("UPDATE cdp SET usuario_id = %s WHERE id = %s", (usuario_existente_id, cdp_id))
+            else:
+                # Comprobar unicidad de username excluyendo al usuario actual si existe
+                if user_id:
+                    cursor.execute("SELECT id FROM usuario WHERE username = %s AND id != %s", (res_user, str(user_id)))
+                else:
+                    cursor.execute("SELECT id FROM usuario WHERE username = %s", (res_user,))
+                if cursor.fetchone():
+                    return False, f"El nombre de usuario '{res_user}' ya está en uso."
+
+                # Actualizar o crear usuario de acceso
+                if user_id:
+                    if password_nueva:
+                        pass_hash = generate_password_hash(password_nueva)
+                        cursor.execute("""
+                            UPDATE usuario
+                            SET nombre = %s, apellido = %s, username = %s, password = %s
+                            WHERE id = %s
+                        """, (res_nom, res_ape, res_user, pass_hash, str(user_id)))
+                    else:
+                        cursor.execute("""
+                            UPDATE usuario
+                            SET nombre = %s, apellido = %s, username = %s
+                            WHERE id = %s
+                        """, (res_nom, res_ape, res_user, str(user_id)))
+                else:
+                    if not password_nueva:
+                        return False, "Debe ingresar una contraseña para crear las credenciales de acceso."
+                    pass_hash = generate_password_hash(password_nueva)
+                    nuevo_user_id = str(uuid.uuid4())
+                    cursor.execute("""
+                        INSERT INTO usuario (id, username, password, tipo_usuario, is_active, nombre, apellido)
+                        VALUES (%s, %s, %s, 'lider_cdp', 1, %s, %s)
+                    """, (nuevo_user_id, res_user, pass_hash, res_nom, res_ape))
+                    cursor.execute("UPDATE cdp SET usuario_id = %s WHERE id = %s", (nuevo_user_id, cdp_id))
+
+        conn.commit()
+
+        try:
+            invalidate_dashboard_cache()
+        except Exception:
+            pass
+
+        return True, "Casa de Paz actualizada exitosamente."
+    
+    except Exception as e:
+        conn.rollback()
+        current_app.logger.error("Error al actualizar CDP %s: %s", cdp_id, e)
+        return False, "Error interno al actualizar la Casa de Paz."
+    finally:
+        conn.close()
+
+def eliminar_cdp_servicio(cdp_id: int) -> tuple[bool, str, str]:
+    """Gestiona la baja o soft delete de una CDP llamando a eliminar_pausar_cdp."""
+
+    try:
+        cdp_id = int(cdp_id)
+    except (ValueError, TypeError):
+        return False, 'danger', "Identificador de Casa de Paz no válido."
+
+    conn = get_db_connection()
+    if not conn:
+        return False, 'danger', "Error de conexión a la base de datos."
+
+    try:
+        with conn.cursor() as cursor:
+
+            exito, accion, mensaje = db_queries.eliminar_pausar_cdp(cursor, cdp_id)
+
+            # Asignamos la categoría visual de Bootstrap/CSS según la acción:
+            categorias = {
+                'eliminada': 'success',  # Verde
+                'pausada':   'warning',  # Amarillo/Ámbar (aviso de que se pausó)
+                'bloqueada': 'danger',   # Rojo (bloqueo por líderes asociados)
+                'error':     'danger'    # Rojo
+            }
+
+            categoria_flash = categorias.get(accion, 'info')
+
+            if exito:
+                conn.commit()
+                try:
+                    invalidate_dashboard_cache()
+                except Exception:
+                    pass
+                return True, categoria_flash, mensaje
+            else:
+                conn.rollback()
+                return False, categoria_flash, mensaje
+            
+    except Exception as e:
+        conn.rollback()
+        current_app.logger.error("Error en baja de CDP %s: %s", cdp_id, e)
+        return False, 'danger', "Error interno al procesar la baja de la Casa de Paz."
+    finally:
+        conn.close()
+
+
+def check_cdp_reporte_7d(cdp_id) -> dict:
+    """
+    Verifica si una Casa de Paz activa ha enviado al menos un reporte en los últimos 7 días.
+    Si is_active = 0, la casa está en pausa/inactiva y no cuenta como pendiente.
+    """
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, codigo, is_active FROM cdp WHERE id = %s", (cdp_id,))
+                cdp = cur.fetchone()
+                if not cdp:
+                    return {'cdp_id': cdp_id, 'tiene_reporte': False, 'is_active': False, 'estado': 'inactiva'}
+                
+                is_active = bool(cdp.get('is_active', 1))
+                if not is_active:
+                    return {'cdp_id': cdp_id, 'codigo': cdp.get('codigo'), 'tiene_reporte': False, 'is_active': False, 'estado': 'pausada'}
+
+                from datetime import date, timedelta
+                hace_7d = date.today() - timedelta(days=7)
+                cur.execute("""
+                    SELECT id, fecha FROM reporte 
+                    WHERE cdp_id = %s AND fecha >= %s
+                    ORDER BY fecha DESC LIMIT 1
+                """, (cdp_id, hace_7d))
+                rep = cur.fetchone()
+                tiene_rep = rep is not None
+                estado = 'al_dia' if tiene_rep else 'pendiente'
+                return {
+                    'cdp_id': cdp_id,
+                    'codigo': cdp.get('codigo'),
+                    'tiene_reporte': tiene_rep,
+                    'is_active': True,
+                    'estado': estado
+                }
+        except Exception as e:
+            print(f"[DB] Error checking cdp 7d: {e}")
+        finally:
+            conn.close()
+
+    # Demo fallback
+    detalle = get_cdp_detalle(cdp_id)
+    return {
+        'cdp_id': detalle.get('id'),
+        'codigo': detalle.get('codigo'),
+        'tiene_reporte': bool(detalle.get('reporte_reciente_7d', False)),
+        'is_active': bool(detalle.get('is_active', True)),
+        'estado': detalle.get('estado_reporte_7d', 'pendiente')
+    }
+
+
+def get_casas_sin_reporte_7d(red_id=None):
+    """
+    Retorna la lista de Casas de Paz activas que no han reportado en los últimos 7 días.
+    """
+    from services.dashboard_service import get_casas_sin_reporte_7d as _get_sin_rep
+    return _get_sin_rep(red_id=red_id)

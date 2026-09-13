@@ -4,19 +4,17 @@
 <header class="form-header">
   <h2 class="form-title">Gestión de {{ title|default('Líderes') }}</h2>
   <p class="form-description">
-  Registra o actualiza los datos del equipo de liderazgo. Asigna su rol (Líder Principal o Sublíder) y vincúlalo a la Casa de Paz a la que pertenece.
+  Registra o actualiza los datos del equipo de liderazgo. Asigna su rol y vincúlalo a su Casa de Paz.
   </p>
 </header>
 
 <form action="" method="POST" class="crud-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-  <span
-    class="material-symbols-outlined form-watermark"
-    style="font-variation-settings: 'FILL' 1"
-    >supervisor_account</span
-  >
 
-  <h3 style="color: var(--primary); font-size: 0.85rem; font-weight: 800; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(137, 114, 111, 0.2); padding-bottom: 0.5rem;">Datos Personales</h3>
+  <div class="form-section-header">
+    <span class="material-symbols-outlined" aria-hidden="true">person</span>
+    <span>Datos Personales</span>
+  </div>
   
   <div class="form-grid">
     <div class="form-group half-width">
@@ -77,7 +75,10 @@
     </div>
   </div>
 
-  <h3 style="color: var(--primary); font-size: 0.85rem; font-weight: 800; margin-top: 2.5rem; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(137, 114, 111, 0.2); padding-bottom: 0.5rem;">Asignación Ministerial</h3>
+  <div class="form-section-header second-section">
+    <span class="material-symbols-outlined" aria-hidden="true">home_work</span>
+    <span>Asignación Ministerial</span>
+  </div>
   
   <div class="form-grid">
     <div class="form-group full-width">
@@ -102,13 +103,22 @@
         <span class="material-symbols-outlined">save</span>
         Guardar Líder
       </button>
-      <button type="button" class="btn-cancel">Cancelar</button>
+      <a href="{{ url_for('admin.lider') }}" class="btn-cancel">Cancelar</a>
     </div>
     
-    <button type="button" class="btn-delete-text">
+    {% if is_edit %}
+    <button type="button" class="btn-delete-text" onclick="if(confirm('¿Deseas eliminar este líder?')) { document.getElementById('formEliminarLider').submit(); }">
       <span class="material-symbols-outlined">delete_outline</span>
       Eliminar Líder
     </button>
+    {% endif %}
   </div>
 </form>
+
+{% if is_edit %}
+<form id="formEliminarLider" action="{{ url_for('admin.lider_eliminar', id=recurso_id) }}" method="POST" class="hidden-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+</form>
+{% endif %}
+
 {% endblock %}

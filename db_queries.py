@@ -34,46 +34,45 @@ def formatear_hora(valor) -> str:
     return val_str[:5] if len(val_str) >= 5 else val_str
 
 
-def formatear_hora(valor) -> str:
-    """Formatea valores de hora (timedelta, time, datetime, str) al formato estándar HH:MM."""
-    if not valor:
-        return ''
-    # PyMySQL entrega campos TIME como datetime.timedelta
-    if isinstance(valor, timedelta) or hasattr(valor, 'total_seconds'):
-        total_segundos = int(valor.total_seconds()) % 86400
-        horas = total_segundos // 3600
-        minutos = (total_segundos % 3600) // 60
-        return f"{horas:02d}:{minutos:02d}"
-    if hasattr(valor, 'strftime'):
-        return valor.strftime("%H:%M")
+def formatear_horario_cdp(hr_val, fecha_val) -> str:
+    """
+    Formatea el horario en formato amigable 'Día · h:mm AM/PM'.
+    Si no hay datos, retorna el estándar institucional 'Miércoles · 7:00 PM'.
+    """
+    from datetime import datetime
+    dias_semana = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
 
-    val_str = str(valor).strip()
-    if ':' in val_str:
-        partes = val_str.split(':')
-        if len(partes) >= 2 and partes[0].isdigit() and partes[1].isdigit():
-            return f"{int(partes[0]):02d}:{int(partes[1]):02d}"
-    return val_str[:5] if len(val_str) >= 5 else val_str
+    # 1. Determinar día de la semana
+    dia_txt = 'Miércoles'
+    if fecha_val:
+        if isinstance(fecha_val, str):
+            try:
+                f_obj = datetime.strptime(fecha_val[:10], '%Y-%m-%d')
+                dia_txt = dias_semana.get(f_obj.weekday(), 'Miércoles')
+            except Exception:
+                pass
+        elif hasattr(fecha_val, 'weekday'):
+            dia_txt = dias_semana.get(fecha_val.weekday(), 'Miércoles')
 
+    # 2. Determinar y convertir hora a formato 12h (AM/PM)
+    if not hr_val:
+        return f"{dia_txt} · 7:00 PM"
 
-def formatear_hora(valor) -> str:
-    """Formatea valores de hora (timedelta, time, datetime, str) al formato estándar HH:MM."""
-    if not valor:
-        return ''
-    # PyMySQL entrega campos TIME como datetime.timedelta
-    if isinstance(valor, timedelta) or hasattr(valor, 'total_seconds'):
-        total_segundos = int(valor.total_seconds()) % 86400
-        horas = total_segundos // 3600
-        minutos = (total_segundos % 3600) // 60
-        return f"{horas:02d}:{minutos:02d}"
-    if hasattr(valor, 'strftime'):
-        return valor.strftime("%H:%M")
+    hora_24 = formatear_hora(hr_val)
+    if not hora_24 or ':' not in hora_24:
+        return f"{dia_txt} · 7:00 PM"
 
-    val_str = str(valor).strip()
-    if ':' in val_str:
-        partes = val_str.split(':')
-        if len(partes) >= 2 and partes[0].isdigit() and partes[1].isdigit():
-            return f"{int(partes[0]):02d}:{int(partes[1]):02d}"
-    return val_str[:5] if len(val_str) >= 5 else val_str
+    try:
+        partes = hora_24.split(':')
+        h = int(partes[0])
+        m = int(partes[1])
+        suffix = 'AM' if h < 12 else 'PM'
+        h12 = h % 12
+        if h12 == 0:
+            h12 = 12
+        return f"{dia_txt} · {h12}:{m:02d} {suffix}"
+    except Exception:
+        return f"{dia_txt} · {hora_24}"
 
 
 def get_usuarios(conn, search='', rol='', page=1, per_page=5):
@@ -229,18 +228,38 @@ def get_metricas_generales(conn):
     except Exception:
         kpis = {}
 
-    cur.execute("SELECT COUNT(*) AS total FROM cdp")
+    # Total casas activas como base de cálculo
+    cur.execute("SELECT COUNT(*) AS total FROM cdp WHERE is_active = 1")
     total_casas = cur.fetchone()['total']
 
-    # Cumplimiento: casas con reporte esta semana / total casas
+    # Cumplimiento: casas activas con reporte en los últimos 7 días / total casas activas
     hoy = date.today()
-    inicio_semana = hoy - timedelta(days=hoy.weekday())
-    cur.execute(
-        "SELECT COUNT(DISTINCT cdp_id) AS con_reporte FROM reporte WHERE fecha >= %s",
-        (inicio_semana,),
-    )
+    hace_7_dias = hoy - timedelta(days=7)
+    cur.execute("""
+        SELECT COUNT(DISTINCT r.cdp_id) AS con_reporte
+        FROM reporte r
+        JOIN cdp c ON r.cdp_id = c.id
+        WHERE c.is_active = 1 AND r.fecha >= %s
+    """, (hace_7_dias,))
     con_reporte = cur.fetchone()['con_reporte']
     cumplimiento = round((con_reporte / total_casas * 100) if total_casas > 0 else 0)
+    casas_pendientes = max(total_casas - con_reporte, 0)
+    total_sin_reporte_7d = casas_pendientes
+
+    # Lista de casas activas sin reporte en los últimos 7 días
+    cur.execute("""
+        SELECT c.id, c.codigo
+        FROM cdp c
+        WHERE c.is_active = 1
+          AND NOT EXISTS (
+              SELECT 1 FROM reporte r
+              WHERE r.cdp_id = c.id AND r.fecha >= %s
+          )
+        ORDER BY c.codigo
+    """, (hace_7_dias,))
+    faltantes_global = cur.fetchall() or []
+    casas_sin_reporte_ids = [f['id'] for f in faltantes_global]
+    casas_sin_reporte_codigos = [f['codigo'] for f in faltantes_global]
 
     # --- Distribución del último reporte (el más reciente global) ---
     cur.execute("""
@@ -277,7 +296,7 @@ def get_metricas_generales(conn):
         for r in rows_tendencia
     ]
 
-    # --- Ranking de redes ---
+    # --- Ranking de redes (Base: Casas activas, Ventana: últimos 7 días) ---
     cur.execute("""
         SELECT
             r.nombre AS nombre,
@@ -291,12 +310,12 @@ def get_metricas_generales(conn):
             ) AS cumplimiento,
             COALESCE(CONCAT(u.nombre, ' ', u.apellido), 'Sin supervisor') AS supervisor
         FROM red r
-        LEFT JOIN cdp c ON c.red_id = r.id
+        LEFT JOIN cdp c ON c.red_id = r.id AND c.is_active = 1
         LEFT JOIN reporte rep ON rep.cdp_id = c.id
         LEFT JOIN usuario u ON r.supervisor_id = u.id
         GROUP BY r.id, r.nombre, u.nombre, u.apellido
         ORDER BY cumplimiento DESC, asistencia_semana DESC, asistencia_total DESC
-    """, (inicio_semana, inicio_semana, inicio_semana))
+    """, (hace_7_dias, hace_7_dias, hace_7_dias))
     ranking = cur.fetchall() or []
     color_map = {
         'hebrón': 'hebron', 'cielos abiertos': 'hebron',
@@ -312,7 +331,7 @@ def get_metricas_generales(conn):
         r['total_casas'] = int(r.get('total_casas', 0) or 0)
         r['cumplimiento'] = int(r.get('cumplimiento', 0) or 0)
 
-    # --- Alertas: casas sin reporte en 14+ días ---
+    # --- Alertas: casas activas sin reporte en 14+ días ---
     cur.execute("""
         SELECT
             c.codigo,
@@ -330,6 +349,7 @@ def get_metricas_generales(conn):
         LEFT JOIN reporte rep ON rep.cdp_id = c.id
         LEFT JOIN red r ON c.red_id = r.id
         LEFT JOIN usuario u ON c.usuario_id = u.id
+        WHERE c.is_active = 1
         GROUP BY c.id, c.codigo, c.anfitrion, c.telefono, r.nombre, u.nombre, u.apellido
         HAVING dias_sin_reporte > 14 OR dias_sin_reporte IS NULL
         ORDER BY dias_sin_reporte DESC
@@ -361,6 +381,11 @@ def get_metricas_generales(conn):
         'total_visitas': int(kpis.get('total_visitas', 0) or 0),
         'total_casas': total_casas,
         'casas_con_reporte': con_reporte,
+        'casas_pendientes': casas_pendientes,
+        'total_sin_reporte_7d': total_sin_reporte_7d,
+        'casas_sin_reporte_ids': casas_sin_reporte_ids,
+        'casas_sin_reporte_codigos': casas_sin_reporte_codigos,
+        'casas_sin_reporte_7d': casas_sin_reporte_codigos,
         'reportes_enviados': con_reporte,
         'distribucion': distribucion,
         'tendencia_semanas': tendencia,
@@ -392,7 +417,9 @@ def get_metricas_red(conn, red_id):
     nombre_red = red_info['nombre_red']
     supervisor = red_info['supervisor'] or ''
 
-    # --- KPIs de la red ---
+    # --- KPIs de la red (Base: Casas activas, Ventana: últimos 7 días) ---
+    hoy = date.today()
+    hace_7_dias = hoy - timedelta(days=7)
     try:
         cur.execute("""
             SELECT
@@ -402,11 +429,11 @@ def get_metricas_red(conn, red_id):
                 COALESCE(SUM(rep.confesiones), 0) AS conversiones,
                 COALESCE(SUM(rep.ofrendas_usd), 0) AS ofrendas_usd,
                 COALESCE(SUM(rep.ofrendas_bs), 0) AS ofrendas_bs,
-                COUNT(DISTINCT CASE WHEN rep.fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) THEN rep.cdp_id END) AS casas_con_reporte
+                COUNT(DISTINCT CASE WHEN rep.fecha >= %s THEN rep.cdp_id END) AS casas_con_reporte
             FROM cdp c
             LEFT JOIN reporte rep ON rep.cdp_id = c.id
-            WHERE c.red_id = %s
-        """, (red_id,))
+            WHERE c.red_id = %s AND c.is_active = 1
+        """, (hace_7_dias, red_id))
         kpis = cur.fetchone()
     except Exception:
         kpis = {}
@@ -437,6 +464,7 @@ def get_metricas_red(conn, red_id):
             c.codigo,
             c.anfitrion,
             c.telefono,
+            c.is_active,
             COALESCE(SUM(rep.nro_regulares + rep.nro_niños + rep.nro_visitas + rep.nro_comprometidos), 0) AS asistencia,
             MAX(rep.fecha) AS ultimo_reporte,
             COALESCE(SUM(rep.nro_visitas), 0) AS visitas,
@@ -451,18 +479,19 @@ def get_metricas_red(conn, red_id):
         LEFT JOIN reporte rep ON rep.cdp_id = c.id
         LEFT JOIN usuario u ON c.usuario_id = u.id
         WHERE c.red_id = %s
-        GROUP BY c.id, c.codigo, c.anfitrion, c.telefono, u.nombre, u.apellido
+        GROUP BY c.id, c.codigo, c.anfitrion, c.telefono, c.is_active, u.nombre, u.apellido
         ORDER BY c.codigo
     """, (red_id,))
     casas_raw = cur.fetchall() or []
 
     casas = []
     for c in casas_raw:
+        is_act = bool(c.get('is_active', 1)) if c.get('is_active') is not None else True
         dias = c['dias_desde_reporte']
-        if dias is None or dias > 14:
-            estado = 'rojo'
-        elif dias > 7:
-            estado = 'amarillo'
+        if not is_act:
+            estado = 'pausada'
+        elif dias is None or dias > 7:
+            estado = 'amarillo' if (dias and dias <= 14) else 'rojo'
         else:
             estado = 'verde'
         casas.append({
@@ -470,12 +499,13 @@ def get_metricas_red(conn, red_id):
             'codigo': c['codigo'],
             'asistencia': int(c['asistencia']),
             'estado': estado,
+            'is_active': is_act,
             'lider': c['lider'] or 'Sin asignar',
             'visitas': int(c['visitas']),
             'telefono': c.get('telefono') or '',
         })
 
-    # --- Alertas zonal: casas en rojo ---
+    # --- Alertas zonal: solo casas activas con >14 días sin reporte ---
     alertas_zonal = [
         {
             'nombre': c['codigo'],
@@ -486,7 +516,7 @@ def get_metricas_red(conn, red_id):
             'telefono': c.get('telefono') or '',
         }
         for c in casas_raw
-        if c['dias_desde_reporte'] is None or c['dias_desde_reporte'] > 14
+        if bool(c.get('is_active', 1)) and (c['dias_desde_reporte'] is None or c['dias_desde_reporte'] > 14)
     ]
 
     # --- Top crecimiento: casa con mayor asistencia reciente ---
@@ -501,19 +531,32 @@ def get_metricas_red(conn, red_id):
             'lider': best['lider'],
         }
 
-    # --- Cumplimiento semanal de la red ---
-    hoy = date.today()
-    inicio_semana = hoy - timedelta(days=hoy.weekday())
+    # --- Cumplimiento de la red en los últimos 7 días (Base: Casas activas) ---
     cur.execute("""
         SELECT COUNT(DISTINCT rep.cdp_id) AS con_reporte
         FROM reporte rep
         JOIN cdp c ON rep.cdp_id = c.id
-        WHERE c.red_id = %s AND rep.fecha >= %s
-    """, (red_id, inicio_semana))
+        WHERE c.red_id = %s AND c.is_active = 1 AND rep.fecha >= %s
+    """, (red_id, hace_7_dias))
     con_reporte_row = cur.fetchone()
     con_reporte = int(con_reporte_row['con_reporte']) if con_reporte_row else 0
     cumplimiento = round((con_reporte / casas_activas * 100) if casas_activas > 0 else 0)
     casas_pendientes = max(casas_activas - con_reporte, 0)
+    total_sin_reporte_7d = casas_pendientes
+
+    cur.execute("""
+        SELECT c.id, c.codigo
+        FROM cdp c
+        WHERE c.red_id = %s AND c.is_active = 1
+          AND NOT EXISTS (
+              SELECT 1 FROM reporte r
+              WHERE r.cdp_id = c.id AND r.fecha >= %s
+          )
+        ORDER BY c.codigo
+    """, (red_id, hace_7_dias))
+    faltantes_red = cur.fetchall() or []
+    casas_sin_reporte_ids = [f['id'] for f in faltantes_red]
+    casas_sin_reporte_codigos = [f['codigo'] for f in faltantes_red]
 
     # --- Directorio de líderes de las Casas de Paz de esta red ---
     cur.execute("""
@@ -547,6 +590,10 @@ def get_metricas_red(conn, red_id):
         'cumplimiento': cumplimiento,
         'casas_con_reporte': con_reporte,
         'casas_pendientes': casas_pendientes,
+        'total_sin_reporte_7d': total_sin_reporte_7d,
+        'casas_sin_reporte_ids': casas_sin_reporte_ids,
+        'casas_sin_reporte_codigos': casas_sin_reporte_codigos,
+        'casas_sin_reporte_7d': casas_sin_reporte_codigos,
         'distribucion': distribucion,
         'casas': casas,
         'alertas_zonal': alertas_zonal,
@@ -1150,14 +1197,35 @@ def insertar_usuario(cursor, username, password_hash, nombre, apellido, tipo_usu
     return nuevo_id
 
 
-def get_redes_disponibles(cursor):
+def get_redes_disponibles(cursor, usuario_id=None):
     """
-    Retorna las redes ministeriales que no tienen supervisor asignado.
+    Retorna las redes ministeriales que no tienen supervisor asignado,
+    o la red actualmente asignada al usuario_id indicado (para edición).
+    """
+    if usuario_id:
+        cursor.execute("""
+            SELECT id, nombre
+            FROM red
+            WHERE supervisor_id IS NULL OR supervisor_id = %s
+            ORDER BY nombre ASC
+        """, (str(usuario_id),))
+    else:
+        cursor.execute("""
+            SELECT id, nombre
+            FROM red
+            WHERE supervisor_id IS NULL
+            ORDER BY nombre ASC
+        """)
+    return cursor.fetchall() or []
+
+def get_todas_las_redes(cursor: Cursor):
+    """
+    Retorna todas las redes activas para asignación en Casas de Paz.
     """
     cursor.execute("""
         SELECT id, nombre
         FROM red
-        WHERE supervisor_id IS NULL
+        WHERE is_active = 1
         ORDER BY nombre ASC
     """)
     return cursor.fetchall() or []
@@ -1178,10 +1246,23 @@ def insertar_red(cursor: Cursor, nombre, supervisor_id):
 
 def obtener_red_por_id(cursor: Cursor, red_id):
     """
-    Obtiene una red ministerial por su ID.
+    Obtiene una red ministerial por su ID con el conteo de Casas de Paz vinculadas.
     """
-    cursor.execute("SELECT * FROM red WHERE id = %s", (red_id,))
+    query = """
+        SELECT r.*, 
+        (SELECT COUNT(*) FROM cdp WHERE red_id = r.id) AS total_casas
+        FROM red r
+        WHERE r.id = %s
+    """
+    cursor.execute(query, (red_id,))
     return cursor.fetchone()
+
+def get_redes_activas_select(cursor: Cursor):
+    """
+    Retorna todas las redes activas para el selector <select name="red_id"> de las Casas de Paz.
+    """
+    cursor.execute("SELECT id FROM red WHERE is_active = 1 ORDER BY nombre ASC")
+    return cursor.fetchall() or []
 
 
 def actualizar_red(cursor: Cursor, red_id, nombre, supervisor_id):
@@ -1233,17 +1314,27 @@ def eliminar_red(cursor: Cursor, red_id):
         cursor.execute("DELETE FROM red WHERE id = %s", (red_id,))
         return cursor.rowcount > 0  # Retorna True si se eliminó alguna fila
 
-def get_cdps_disponibles(cursor):
+def get_cdps_disponibles(cursor, usuario_id=None):
     """
-    Retorna las Casas de Paz que no tienen usuario (líder) asignado.
+    Retorna las Casas de Paz que no tienen usuario (líder) asignado,
+    o la Casa de Paz actualmente asignada al usuario_id indicado (para edición).
     """
-    cursor.execute("""
-        SELECT c.id, c.codigo, c.direccion, c.red_id, r.nombre AS red_nombre
-        FROM cdp c
-        LEFT JOIN red r ON c.red_id = r.id
-        WHERE c.usuario_id IS NULL
-        ORDER BY c.codigo ASC
-    """)
+    if usuario_id:
+        cursor.execute("""
+            SELECT c.id, c.codigo, c.direccion, c.red_id, r.nombre AS red_nombre
+            FROM cdp c
+            LEFT JOIN red r ON c.red_id = r.id
+            WHERE c.usuario_id IS NULL OR c.usuario_id = %s
+            ORDER BY c.codigo ASC
+        """, (str(usuario_id),))
+    else:
+        cursor.execute("""
+            SELECT c.id, c.codigo, c.direccion, c.red_id, r.nombre AS red_nombre
+            FROM cdp c
+            LEFT JOIN red r ON c.red_id = r.id
+            WHERE c.usuario_id IS NULL
+            ORDER BY c.codigo ASC
+        """)
     return cursor.fetchall() or []
 
 
@@ -1258,6 +1349,36 @@ def get_supervisores_disponibles(cursor):
         WHERE u.tipo_usuario = 'supervisor' AND r.id IS NULL
         ORDER BY u.nombre, u.apellido
     """)
+    return cursor.fetchall() or []
+
+
+def get_lideres_cdp_disponibles(cursor, cdp_id=None):
+    """
+    Retorna los usuarios con rol 'lider_cdp' activos que aún no tienen una Casa de Paz asignada,
+    o el usuario actualmente asignado a la Casa de Paz cdp_id indicada (para edición).
+    """
+    if cdp_id:
+        try:
+            cdp_id_int = int(cdp_id)
+        except (ValueError, TypeError):
+            cdp_id_int = -1
+        cursor.execute("""
+            SELECT u.id, u.nombre, u.apellido, u.username
+            FROM usuario u
+            LEFT JOIN cdp c ON c.usuario_id = u.id
+            WHERE u.tipo_usuario = 'lider_cdp' AND u.is_active = 1
+              AND (c.id IS NULL OR c.id = %s)
+            ORDER BY u.nombre, u.apellido
+        """, (cdp_id_int,))
+    else:
+        cursor.execute("""
+            SELECT u.id, u.nombre, u.apellido, u.username
+            FROM usuario u
+            LEFT JOIN cdp c ON c.usuario_id = u.id
+            WHERE u.tipo_usuario = 'lider_cdp' AND u.is_active = 1
+              AND c.id IS NULL
+            ORDER BY u.nombre, u.apellido
+        """)
     return cursor.fetchall() or []
 
 
@@ -1282,4 +1403,95 @@ def asignar_usuario_a_cdp(cursor, usuario_id, cdp_id):
     )
     return cursor.rowcount > 0
 
+def insertar_cdp(cursor: Cursor, codigo: str, anfitrion: str, direccion: str, telefono: str, red_id: int, usuario_id: str = None):
+    """
+    Inserta una nueva Casa de Paz vinculada a una red y a su usuario de acceso.
+    """
+    query = """
+        INSERT INTO cdp (codigo, anfitrion, direccion, is_active, telefono, red_id, usuario_id) 
+        VALUES (%s, %s, %s, 1, %s, %s, %s)
+    """
+    cursor.execute(query, (codigo.strip(), anfitrion.strip(), direccion.strip(), telefono.strip(), red_id, usuario_id))
+    return cursor.lastrowid
+
+def obtener_cdp_admin(cursor: Cursor, cdp_id: int):
+    """
+    Obtiene los datos completos de una CDP incluyendo los datos del usuario asignado.
+    """
+    query = """
+        SELECT c.*, u.username, u.nombre AS usuario_nombre, u.apellido AS usuario_apellido, r.nombre as red_nombre
+        FROM cdp c
+        LEFT JOIN usuario u ON c.usuario_id = u.id
+        LEFT JOIN red r ON c.red_id = r.id
+        WHERE c.id = %s
+    """
+
+    cursor.execute(query, (cdp_id,))
+    return cursor.fetchone()
+
+def actualizar_cdp_admin(cursor: Cursor, cdp_id: int, codigo: str, anfitrion: str, telefono: str, direccion:str, red_id:int):
+    """
+    Actualiza la información física y organizativa de la Casa de Paz.
+    """
+    query = """
+    UPDATE cdp 
+    SET codigo = %s, anfitrion = %s, telefono = %s, direccion = %s, red_id = %s
+    WHERE id = %s
+    """
+
+    cursor.execute(query, (codigo.strip(), anfitrion.strip(), telefono.strip(), direccion.strip(), red_id, cdp_id))
+    return cursor.rowcount >= 0
+
+def eliminar_pausar_cdp(cursor: Cursor, cdp_id: int) -> tuple[bool, str, str]:
+    """
+    Gestiona la baja de una Casa de Paz preservando la integridad:
+    - Validación 1: Si tiene líderes asignados, BLOQUEA la acción exigiendo su reasignación previa.
+    - Validación 2: Si tiene reportes históricos, realiza soft delete (is_active = 0) en CDP y usuario.
+    - Si NO tiene reportes ni líderes: Realiza eliminación física completa (CDP y usuario de acceso).
     
+    Retorna: (éxito: bool, acción: 'bloqueada' | 'pausada' | 'eliminada' | 'error', mensaje: str)
+    """
+    # 1. Obtener usuario_id asociado a la CDP
+    cursor.execute("SELECT usuario_id, codigo FROM cdp WHERE id = %s", (cdp_id,))
+    cdp = cursor.fetchone()
+
+    if not cdp:
+        return False, 'error', "La casa de paz no existe."
+
+    codigo_cdp = cdp.get('codigo')
+    usuario_id = cdp.get('usuario_id')
+
+    # 2. Verificar si tiene lideres asignados
+    cursor.execute('SELECT COUNT(*) AS total FROM lider WHERE cdp_id = %s', (cdp_id,))
+    total_lideres = cursor.fetchone()['total']
+
+    if total_lideres > 0:
+        return(
+            False, 
+            'bloqueada',
+            f"No se puede dar de baja la Casa de Paz '{codigo_cdp}' porque tiene {total_lideres} líder(es) asignado(s). "
+            f"Reasígnalos a otra Casa desde el botón de edición antes de continuar."
+        )
+
+    # 3. Verificar si tiene reportes históricos
+    cursor.execute("SELECT COUNT(*) AS total FROM reporte WHERE cdp_id = %s", (cdp_id,))
+    total_reportes = cursor.fetchone()['total']
+
+    if total_reportes > 0:
+        # --- CASO A: TIENE HISTORIAL -> DESACTIVACIÓN LÓGICA ---
+        cursor.execute('UPDATE cdp SET is_active = 0 WHERE id = %s', (cdp_id,))
+
+        if usuario_id:
+            cursor.execute("UPDATE usuario SET is_active = 0 WHERE id = %s", (usuario_id,))
+
+        return True, 'pausada', f"La Casa de Paz '{codigo_cdp}' tiene {total_reportes} reportes históricos. Ha sido pausada y su acceso desactivado para proteger las estadísticas."
+
+    else:
+        # --- CASO B: NO TIENE HISTORIAL -> ELIMINACIÓN FÍSICA LIMPIA ---
+        # 1. Eliminar la CDP
+        cursor.execute('DELETE FROM cdp WHERE id = %s', (cdp_id,)) 
+        # 2. Eliminar el usuario de acceso para liberar el username
+        if usuario_id:
+            cursor.execute('DELETE FROM usuario WHERE id = %s', (usuario_id,))
+
+        return True, 'eliminada', f"La Casa de Paz '{codigo_cdp}' y su cuenta de acceso han sido eliminadas permanentemente."

@@ -5,6 +5,7 @@ Garantiza coherencia relacional estricta entre Redes, Casas de Paz, Líderes, Su
 """
 import urllib.parse
 import re
+from datetime import date, timedelta
 
 
 def get_redes_demo():
@@ -53,8 +54,10 @@ def get_casas_demo():
             'lider_id': '1d4f7c99-7d51-11f1-bf9e-2016d8516279',
             'telefono': '+58 412 123 4567',
             'asistencia': 18,
+            'is_active': 1,
             'estado': 'activa',
-            'horario': 'Martes · 7:30 PM'
+            'tiene_reporte_7d': True,
+            'horario': 'Miércoles · 7:00 PM'
         },
         {
             'id': 2,
@@ -69,7 +72,9 @@ def get_casas_demo():
             'lider_id': 'mock-leader-2',
             'telefono': '+58 414 987 6543',
             'asistencia': 14,
-            'estado': 'activa',
+            'is_active': 1,
+            'estado': 'pendiente',
+            'tiene_reporte_7d': False,
             'horario': 'Miércoles · 7:00 PM'
         },
         {
@@ -85,7 +90,9 @@ def get_casas_demo():
             'lider_id': 'mock-asoler',
             'telefono': '+58 424 567 8901',
             'asistencia': 22,
-            'estado': 'activa',
+            'is_active': 1,
+            'estado': 'pendiente',
+            'tiene_reporte_7d': False,
             'horario': 'Jueves · 7:30 PM'
         },
         {
@@ -101,7 +108,9 @@ def get_casas_demo():
             'lider_id': 'mock-leader-4',
             'telefono': '+58 416 345 6789',
             'asistencia': 12,
+            'is_active': 1,
             'estado': 'activa',
+            'tiene_reporte_7d': True,
             'horario': 'Viernes · 7:00 PM'
         },
     ]
@@ -262,11 +271,23 @@ def get_mock_lideres():
 
 def get_mock_reportes():
     """Reportes de demostración para la vista administrativa y de supervisores."""
+    hoy = date.today()
+    meses_abr = {1: 'Ene', 2: 'Feb', 3: 'Mar', 4: 'Abr', 5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Ago', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dic'}
+
+    def fmt(d):
+        return f"{d.day} {meses_abr.get(d.month, '')} {d.year}"
+
+    f1 = hoy - timedelta(days=2)
+    f2 = hoy - timedelta(days=4)
+    f3 = hoy - timedelta(days=10)
+    f4 = hoy - timedelta(days=12)
+    f5 = hoy - timedelta(days=9)
+
     return [
         {
             'id': 'mock-rep-1',
-            'fecha': '2026-08-24',
-            'fecha_formateada': '24 Ago 2026',
+            'fecha': f1.isoformat(),
+            'fecha_formateada': fmt(f1),
             'lider_nombre': 'Juan Carlos Pérez',
             'iniciales': 'JP',
             'avatar_class': 'bg-primary-light text-primary',
@@ -292,8 +313,8 @@ def get_mock_reportes():
         },
         {
             'id': 'mock-rep-2',
-            'fecha': '2026-08-22',
-            'fecha_formateada': '22 Ago 2026',
+            'fecha': f2.isoformat(),
+            'fecha_formateada': fmt(f2),
             'lider_nombre': 'Mateo Rodríguez',
             'iniciales': 'MR',
             'avatar_class': 'bg-secondary-light text-secondary',
@@ -319,8 +340,8 @@ def get_mock_reportes():
         },
         {
             'id': 'mock-rep-3',
-            'fecha': '2026-08-20',
-            'fecha_formateada': '20 Ago 2026',
+            'fecha': f3.isoformat(),
+            'fecha_formateada': fmt(f3),
             'lider_nombre': 'Elena Pérez',
             'iniciales': 'EP',
             'avatar_class': 'bg-primary-light text-primary',
@@ -346,8 +367,8 @@ def get_mock_reportes():
         },
         {
             'id': 'mock-rep-4',
-            'fecha': '2026-08-18',
-            'fecha_formateada': '18 Ago 2026',
+            'fecha': f4.isoformat(),
+            'fecha_formateada': fmt(f4),
             'lider_nombre': 'Andrés Soler',
             'iniciales': 'AS',
             'avatar_class': 'bg-secondary-light text-secondary',
@@ -373,8 +394,8 @@ def get_mock_reportes():
         },
         {
             'id': 'mock-rep-5',
-            'fecha': '2026-08-17',
-            'fecha_formateada': '17 Ago 2026',
+            'fecha': f5.isoformat(),
+            'fecha_formateada': fmt(f5),
             'lider_nombre': 'Juan Carlos Pérez',
             'iniciales': 'JP',
             'avatar_class': 'bg-primary-light text-primary',
@@ -406,6 +427,9 @@ def get_mock_reportes():
 # ---------------------------------------------------------------------------
 def get_mock_generales():
     """Métricas mock para la vista general de la iglesia."""
+    hoy = date.today()
+    hace_7_dias = hoy - timedelta(days=7)
+
     reportes = get_mock_reportes()
     casas = get_casas_demo()
     
@@ -416,17 +440,46 @@ def get_mock_generales():
     total_reconciliaciones = sum(r['reconciliaciones'] for r in reportes)
     total_confesiones = sum(r['confesiones'] for r in reportes)
 
+    # Base de cálculo: considerar únicamente Casas de Paz activas
+    casas_activas = [c for c in casas if bool(c.get('is_active', 1)) and c.get('estado') != 'pausada']
+    total_casas = len(casas_activas)
+
+    # Casas activas con al menos un reporte en los últimos 7 días
+    casas_con_rep_7d_ids = set()
+    for r in reportes:
+        f = r.get('fecha')
+        if f:
+            try:
+                f_date = date.fromisoformat(str(f)[:10])
+                if f_date >= hace_7_dias:
+                    casas_con_rep_7d_ids.add(r['cdp_id'])
+            except Exception:
+                pass
+
+    casas_con_reporte = len([c for c in casas_activas if c['id'] in casas_con_rep_7d_ids])
+    cumplimiento = round((casas_con_reporte / total_casas * 100) if total_casas > 0 else 0)
+    faltantes = [c for c in casas_activas if c['id'] not in casas_con_rep_7d_ids]
+    total_sin_reporte_7d = len(faltantes)
+    casas_sin_reporte_ids = [c['id'] for c in faltantes]
+    casas_sin_reporte_codigos = [c.get('codigo') or c.get('nombre') for c in faltantes]
+    casas_pendientes = total_sin_reporte_7d
+
     return {
         'total_asistencia': total_asistencia,
-        'cumplimiento': 85,
+        'cumplimiento': cumplimiento,
         'ofrendas_usd': total_ofrendas_usd,
         'ofrendas_bs': total_ofrendas_bs,
         'conversiones': total_confesiones,
         'reconciliaciones': total_reconciliaciones,
         'cestas_amor': sum(r['cesta_amor'] for r in reportes),
         'total_visitas': total_visitas,
-        'total_casas': len(casas),
-        'casas_con_reporte': len(set(r['cdp_id'] for r in reportes)),
+        'total_casas': total_casas,
+        'casas_con_reporte': casas_con_reporte,
+        'casas_pendientes': casas_pendientes,
+        'total_sin_reporte_7d': total_sin_reporte_7d,
+        'casas_sin_reporte_ids': casas_sin_reporte_ids,
+        'casas_sin_reporte_codigos': casas_sin_reporte_codigos,
+        'casas_sin_reporte_7d': casas_sin_reporte_codigos,
         'reportes_enviados': len(reportes),
         'distribucion': {
             'regulares': sum(r['nro_regulares'] for r in reportes),
@@ -441,9 +494,9 @@ def get_mock_generales():
             {'semana': 'Sem 4', 'asistencia': 66, 'porcentaje': 90},
         ],
         'ranking_redes': [
-            {'nombre': 'Red Hebrón', 'cumplimiento': 90, 'asistencia': 30, 'asistencia_semana': 30, 'asistencia_total': 340, 'casas_reportadas': 9, 'total_casas': 10, 'supervisor': 'Pedro González', 'color_class': 'hebron'},
-            {'nombre': 'Red Central', 'cumplimiento': 85, 'asistencia': 22, 'asistencia_semana': 22, 'asistencia_total': 280, 'casas_reportadas': 8, 'total_casas': 10, 'supervisor': 'Carlos Ramírez', 'color_class': 'central'},
-            {'nombre': 'Red Sur', 'cumplimiento': 80, 'asistencia': 14, 'asistencia_semana': 14, 'asistencia_total': 190, 'casas_reportadas': 7, 'total_casas': 9, 'supervisor': 'María López', 'color_class': 'sur'},
+            {'nombre': 'Red Hebrón', 'cumplimiento': 100, 'asistencia': 30, 'asistencia_semana': 30, 'asistencia_total': 340, 'casas_reportadas': 2, 'total_casas': 2, 'supervisor': 'Pedro González', 'color_class': 'hebron'},
+            {'nombre': 'Red Central', 'cumplimiento': 0, 'asistencia': 22, 'asistencia_semana': 0, 'asistencia_total': 280, 'casas_reportadas': 0, 'total_casas': 1, 'supervisor': 'Carlos Ramírez', 'color_class': 'central'},
+            {'nombre': 'Red Sur', 'cumplimiento': 0, 'asistencia': 14, 'asistencia_semana': 0, 'asistencia_total': 190, 'casas_reportadas': 0, 'total_casas': 1, 'supervisor': 'María López', 'color_class': 'sur'},
         ],
         'alertas': [],
     }
@@ -454,6 +507,9 @@ def get_mock_generales():
 # ---------------------------------------------------------------------------
 def get_mock_red(red_id):
     """Métricas mock para la vista de una red específica."""
+    hoy = date.today()
+    hace_7_dias = hoy - timedelta(days=7)
+
     redes = get_redes_demo()
     red = next((r for r in redes if str(r['id']) == str(red_id)), redes[0])
     rid = red['id']
@@ -469,14 +525,48 @@ def get_mock_red(red_id):
     ninos_total = sum(rep.get('nro_niños', 0) for rep in reportes_red)
     conversiones_total = sum(rep.get('confesiones', 0) for rep in reportes_red)
 
+    casas_activas_red = [c for c in casas_red if bool(c.get('is_active', 1)) and c.get('estado') != 'pausada']
+    total_casas_red = len(casas_activas_red)
+
+    # Identificar reportes en los últimos 7 días en esta red
+    casas_con_rep_7d = set()
+    for r in reportes_red:
+        f = r.get('fecha')
+        if f:
+            try:
+                f_date = date.fromisoformat(str(f)[:10])
+                if f_date >= hace_7_dias:
+                    casas_con_rep_7d.add(r['cdp_id'])
+            except Exception:
+                pass
+
+    con_reporte = len([c for c in casas_activas_red if c['id'] in casas_con_rep_7d])
+    cumplimiento = round((con_reporte / total_casas_red * 100) if total_casas_red > 0 else 0)
+    faltantes = [c for c in casas_activas_red if c['id'] not in casas_con_rep_7d]
+    total_sin_reporte_7d = len(faltantes)
+    casas_sin_reporte_ids = [c['id'] for c in faltantes]
+    casas_sin_reporte_codigos = [c.get('codigo') or c.get('nombre') for c in faltantes]
+    casas_pendientes = total_sin_reporte_7d
+
     casas_cards = []
     for c in casas_red:
+        is_act = bool(c.get('is_active', 1)) and c.get('estado') != 'pausada'
+        rep_7d = c['id'] in casas_con_rep_7d
+        if not is_act:
+            estado = 'pausada'
+        elif rep_7d:
+            estado = 'verde'
+        else:
+            estado = 'amarillo'
+
         casas_cards.append({
             'id': c['id'],
             'nombre': c['nombre'],
             'codigo': c['codigo'],
             'asistencia': c['asistencia'],
-            'estado': 'verde' if c['asistencia'] >= 15 else 'amarillo',
+            'estado': estado,
+            'is_active': is_act,
+            'reporte_reciente_7d': rep_7d,
             'lider': c['lider'],
             'visitas': 3
         })
@@ -496,7 +586,7 @@ def get_mock_red(red_id):
         'nombre_red': red['nombre'],
         'red_id': rid,
         'supervisor': red['supervisor'],
-        'casas_activas': len(casas_red),
+        'casas_activas': total_casas_red,
         'asistencia_total': asistencia_total,
         'promedio_casa': promedio_casa,
         'ninos': ninos_total,
@@ -518,9 +608,13 @@ def get_mock_red(red_id):
             'visitas': 3,
             'lider': casas_red[0]['lider'] if casas_red else 'Líder',
         },
-        'cumplimiento': 85,
-        'casas_con_reporte': len(reportes_red),
-        'casas_pendientes': max(0, len(casas_red) - len(reportes_red)),
+        'cumplimiento': cumplimiento,
+        'casas_con_reporte': con_reporte,
+        'casas_pendientes': casas_pendientes,
+        'total_sin_reporte_7d': total_sin_reporte_7d,
+        'casas_sin_reporte_ids': casas_sin_reporte_ids,
+        'casas_sin_reporte_codigos': casas_sin_reporte_codigos,
+        'casas_sin_reporte_7d': casas_sin_reporte_codigos,
         'lideres_red': lideres_cards,
     }
 
@@ -642,6 +736,60 @@ def get_mock_cdp_detalle(cdp_id):
     ofrendas_usd_totales = sum(r['ofrendas_usd'] for r in reportes)
     ofrendas_bs_totales = sum(r['ofrendas_bs'] for r in reportes)
 
+    # Usuario del sistema asignado
+    usuarios = get_mock_usuarios()
+    user = next((u for u in usuarios if u['id'] == cdp.get('lider_id') or u['id'] == cdp.get('usuario_id')), None)
+    if not user:
+        user = usuarios[2]  # Default demo leader 'lider'
+
+    # Horario derivado del reporte más reciente si existe
+    if reportes:
+        r_rec = reportes[0]
+        hr_ini = r_rec.get('hr_inicio', '19:00')
+        f_str = r_rec.get('fecha')
+        dia_txt = ''
+        if f_str:
+            try:
+                from datetime import datetime
+                dias_semana = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
+                f_obj = datetime.strptime(f_str[:10], '%Y-%m-%d')
+                dia_txt = dias_semana.get(f_obj.weekday(), '')
+            except Exception:
+                pass
+        horario = f"{dia_txt} · {hr_ini}" if dia_txt else f"Reunión: {hr_ini}"
+    else:
+        horario = 'Miércoles · 7:00 PM'
+
+    hoy = date.today()
+    hace_7_dias = hoy - timedelta(days=7)
+    ultimo_rep = reportes[0] if reportes else None
+    ultimo_reporte_fecha = None
+    dias_desde_ultimo_reporte = None
+    tiene_reporte_reciente = False
+
+    if ultimo_rep and ultimo_rep.get('fecha'):
+        f_str = ultimo_rep.get('fecha')
+        try:
+            f_date = date.fromisoformat(str(f_str)[:10])
+            dias_desde_ultimo_reporte = (hoy - f_date).days
+            if f_date >= hace_7_dias:
+                tiene_reporte_reciente = True
+        except Exception:
+            pass
+        ultimo_reporte_fecha = ultimo_rep.get('fecha_formateada') or str(f_str or '')
+
+    is_active = bool(cdp.get('is_active', 1)) and (cdp.get('estado') != 'pausada')
+
+    if not is_active:
+        estado_reporte_7d = 'pausada'
+        reporte_reciente_7d = False
+    elif tiene_reporte_reciente:
+        estado_reporte_7d = 'al_dia'
+        reporte_reciente_7d = True
+    else:
+        estado_reporte_7d = 'pendiente'
+        reporte_reciente_7d = False
+
     return {
         'id': cid,
         'codigo': cdp['codigo'],
@@ -655,8 +803,18 @@ def get_mock_cdp_detalle(cdp_id):
         'lider_nombre': lider_principal,
         'telefono': telefono_contacto,
         'telefono_wa': re.sub(r'\D', '', telefono_contacto),
-        'estado': cdp['estado'],
-        'horario': cdp['horario'],
+        'is_active': is_active,
+        'estado': 'activa' if is_active else 'inactiva',
+        'reporte_reciente_7d': reporte_reciente_7d,
+        'estado_reporte_7d': estado_reporte_7d,
+        'ultimo_reporte_fecha': ultimo_reporte_fecha,
+        'dias_desde_ultimo_reporte': dias_desde_ultimo_reporte,
+        'horario': horario,
+        'usuario_id': user['id'] if user else None,
+        'usuario_username': user['username'] if user else None,
+        'usuario_nombre': user['nombre'] if user else '',
+        'usuario_apellido': user['apellido'] if user else '',
+        'usuario_activo': bool(user.get('is_active', 1)) if user else True,
         'asistencia_promedio': asistencia_promedio,
         'total_reportes': len(reportes),
         'ofrendas_usd_totales': ofrendas_usd_totales,

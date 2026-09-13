@@ -1,23 +1,24 @@
 {% extends "admin_form_layout.html" %} 
 
+{% block custom_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='styles/admin/cdp.css') }}">
+{% endblock %}
+
 {% block content %}
 <header class="form-header">
   <h2 class="form-title">Gestión de {{ title|default('Casa de Paz') }}</h2>
   <p class="form-description">
-  Actualiza los detalles de ubicación, red ministerial y las credenciales de acceso para esta
-  Casa de Paz. Los cambios se reflejarán inmediatamente en el sistema.
+  Configura la ubicación, red ministerial y credenciales de acceso para esta Casa de Paz.
   </p>
 </header>
 
-<form action="" method="POST" class="crud-form">
+<form id="crudFormCdp" data-is-edit="{{ 'true' if is_edit else 'false' }}" action="" method="POST" class="crud-form cdp-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-  <span
-    class="material-symbols-outlined form-watermark"
-    style="font-variation-settings: 'FILL' 1"
-    >nest_eco_leaf</span
-  >
 
-  <h3 style="color: var(--primary); font-size: 0.85rem; font-weight: 800; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(137, 114, 111, 0.2); padding-bottom: 0.5rem;">Datos del Centro</h3>
+  <div class="form-section-header">
+    <span class="material-symbols-outlined" aria-hidden="true">home_pin</span>
+    <span>Datos del Centro</span>
+  </div>
   
   <div class="form-grid">
     <div class="form-group half-width">
@@ -50,6 +51,22 @@
       </div>
     </div>
 
+    <div class="form-group half-width">
+      <label for="anfitrion">Anfitrión de la Casa</label>
+      <div class="input-wrapper icon-left">
+        <span class="material-symbols-outlined input-icon">person</span>
+        <input id="anfitrion" name="anfitrion" type="text" value="{{ cdp.anfitrion if cdp else '' }}" placeholder="Ej. Familia Gómez Ríos" required/>
+      </div>
+    </div>
+
+    <div class="form-group half-width">
+      <label for="telefono">Teléfono de Contacto</label>
+      <div class="input-wrapper icon-left">
+        <span class="material-symbols-outlined input-icon">call</span>
+        <input id="telefono" name="telefono" type="tel" value="{{ cdp.telefono if cdp else '' }}" placeholder="+58 412 1234567" required/>
+      </div>
+    </div>
+
     <div class="form-group full-width">
       <label for="direccion">Dirección Completa</label>
       <div class="input-wrapper icon-left">
@@ -66,9 +83,72 @@
     </div>
   </div>
 
-  <h3 style="color: var(--primary); font-size: 0.85rem; font-weight: 800; margin-top: 2.5rem; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(137, 114, 111, 0.2); padding-bottom: 0.5rem;">Credenciales de Acceso</h3>
-  
-  <div class="form-grid">
+  <div class="form-section-header second-section">
+    <span class="material-symbols-outlined" aria-hidden="true">badge</span>
+    <span>Líder y Credenciales de Acceso</span>
+  </div>
+
+  <div class="asignacion-selector-container">
+    <div class="segmented-control" role="radiogroup" aria-label="Modo de asignación de usuario líder">
+      <label class="segmented-option">
+        <input type="radio" name="modo_usuario" value="existente" id="modo_existente" {% if is_edit or (lideres_disponibles and lideres_disponibles|length > 0) %}checked{% endif %}>
+        <span class="segmented-btn">
+          <span class="material-symbols-outlined" aria-hidden="true">person_check</span>
+          Asignar Líder Existente
+        </span>
+      </label>
+      <label class="segmented-option">
+        <input type="radio" name="modo_usuario" value="nuevo" id="modo_nuevo" {% if not is_edit and (not lideres_disponibles or lideres_disponibles|length == 0) %}checked{% endif %}>
+        <span class="segmented-btn">
+          <span class="material-symbols-outlined" aria-hidden="true">person_add</span>
+          Crear Nuevo Usuario
+        </span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Opción 1: Seleccionar Usuario Líder Existente -->
+  <div id="seccion-usuario-existente" class="form-grid">
+    <div class="form-group full-width">
+      <label for="usuario_existente_id">Usuario Líder Asignado (Rol 'Líder CDP')</label>
+      <div class="input-wrapper icon-left icon-right">
+        <span class="material-symbols-outlined input-icon">manage_accounts</span>
+        <select id="usuario_existente_id" name="usuario_existente_id">
+          <option value="" disabled {% if not cdp or not cdp.usuario_id %}selected{% endif %}>-- Selecciona un usuario líder disponible --</option>
+          {% for lider in lideres_disponibles %}
+          <option value="{{ lider.id }}" {% if cdp and cdp.usuario_id|string == lider.id|string %}selected{% endif %}>
+            {{ lider.nombre }} {{ lider.apellido }} (@{{ lider.username }})
+          </option>
+          {% endfor %}
+        </select>
+        <span class="material-symbols-outlined input-icon">expand_more</span>
+      </div>
+      {% if not lideres_disponibles or lideres_disponibles|length == 0 %}
+      <span class="input-hint alert-hint">No hay usuarios con rol 'lider_cdp' disponibles sin asignar. Puedes seleccionar "Crear Nuevo Usuario" arriba o registrar uno nuevo desde <a href="{{ url_for('admin.usuario_crear') }}">Gestión de Usuarios</a>.</span>
+      {% else %}
+      <span class="input-hint">Muestra los usuarios con rol líder de Casa de Paz activos que no tienen otra casa asignada.</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Opción 2: Crear Nuevo Usuario / Credenciales en línea -->
+  <div id="seccion-usuario-nuevo" class="form-grid">
+    <div class="form-group half-width">
+      <label for="nombre">Nombre del Responsable</label>
+      <div class="input-wrapper icon-left">
+        <span class="material-symbols-outlined input-icon">id_card</span>
+        <input id="nombre" name="nombre" type="text" value="{{ cdp.usuario_nombre if cdp else '' }}" placeholder="Nombre"/>
+      </div>
+    </div>
+
+    <div class="form-group half-width">
+      <label for="apellido">Apellido del Responsable</label>
+      <div class="input-wrapper icon-left">
+        <span class="material-symbols-outlined input-icon">id_card_2</span>
+        <input id="apellido" name="apellido" type="text" value="{{ cdp.usuario_apellido if cdp else '' }}" placeholder="Apellido"/>
+      </div>
+    </div>
+    
     <div class="form-group half-width">
       <label for="username">Usuario de Acceso</label>
       <div class="input-wrapper icon-left">
@@ -77,9 +157,8 @@
           id="username"
           name="username"
           type="text"
-          value="{{ cdp.usuario.username if cdp and cdp.usuario else '' }}"
+          value="{{ cdp.username if cdp and cdp.username else '' }}"
           placeholder="Ej. cdp_sur001"
-          required
         />
       </div>
     </div>
@@ -93,9 +172,13 @@
           name="password"
           type="password"
           placeholder="••••••••"
-          {% if not cdp %}required{% endif %}
         />
       </div>
+      {% if is_edit %}
+      <span class="input-hint">Deja en blanco para conservar la contraseña actual.</span>
+      {% else %}
+      <span class="input-hint">Mínimo 8 caracteres, mayúsculas y números.</span>
+      {% endif %}
     </div>
   </div>
 
@@ -105,13 +188,25 @@
         <span class="material-symbols-outlined">save</span>
         Guardar Casa
       </button>
-      <button type="button" class="btn-cancel">Cancelar</button>
+      <a href="{{ url_for('admin.casa_de_paz', id=recurso_id) if is_edit and recurso_id else url_for('admin.estructura') }}" class="btn-cancel">Cancelar</a>
     </div>
-    <button type="button" class="btn-delete-text">
-      <span class="material-symbols-outlined">delete_outline</span>
-      Eliminar Casa
+    {% if is_edit %}
+    <button type="button" class="btn-delete-text" onclick="if(confirm('¿Deseas dar de baja esta Casa de Paz? Si tiene reportes históricos será pausada para proteger las estadísticas.')) { document.getElementById('formEliminarCdp').submit(); }">
+        <span class="material-symbols-outlined">delete_outline</span>
+        Eliminar / Pausar Casa
     </button>
+    {% endif %}
   </div>
 </form>
 
+{% if is_edit %}
+<form id="formEliminarCdp" action="{{ url_for('admin.casa_de_paz_eliminar', id=recurso_id) }}" method="POST" class="hidden-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+</form>
+{% endif %}
+
+{% endblock %}
+
+{% block custom_scripts %}
+<script src="{{ url_for('static', filename='scripts/admin/form_cdp.js') }}" defer></script>
 {% endblock %}

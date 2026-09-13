@@ -4,7 +4,7 @@ Maneja la obtención y filtrado de métricas para Admin y Supervisor.
 """
 from flask import current_app, session, request
 from database import get_db_connection
-from db_queries import get_metricas_generales, get_metricas_red, get_metricas_cdp
+from db_queries import formatear_horario_cdp, get_metricas_generales, get_metricas_red, get_metricas_cdp
 from mock_data import (
     get_redes_demo, get_casas_demo,
     get_mock_generales, get_mock_red, get_mock_cdp,
@@ -70,6 +70,9 @@ def sanitize_metricas(metricas):
         'ofrendas_bs': 0.0,
         'casas_con_reporte': 0,
         'casas_pendientes': 0,
+        'total_sin_reporte_7d': 0,
+        'casas_sin_reporte_ids': [],
+        'casas_sin_reporte_codigos': [],
         'lideres_red': [],
         'ultimo_tema': 'Sin tema registrado',
         'hr_inicio': '',
@@ -85,7 +88,7 @@ def sanitize_metricas(metricas):
         result['distribucion'] = default_metricas['distribucion']
     
     # Asegurar listas
-    for key in ['historial', 'tendencia', 'ranking_redes', 'ranking_cdp', 'lideres_red']:
+    for key in ['historial', 'tendencia', 'ranking_redes', 'ranking_cdp', 'lideres_red', 'casas_sin_reporte_ids', 'casas_sin_reporte_codigos']:
         if key not in result or not isinstance(result.get(key), list):
             result[key] = []
     
@@ -148,7 +151,8 @@ def get_selectores():
         redes = cur.fetchall() or []
         
         cur.execute("""
-            SELECT c.id, c.codigo, c.codigo AS nombre, c.anfitrion, c.direccion, c.red_id,
+            SELECT c.id, c.codigo, c.codigo AS nombre, c.anfitrion, c.direccion, c.red_id, c.is_active,
+                   u.username AS usuario_username,
                    COALESCE(
                        (SELECT CONCAT(l.nombre, ' ', l.apellido) FROM lider l WHERE l.cdp_id = c.id AND l.rol = 'Lider' LIMIT 1),
                        (SELECT CONCAT(l.nombre, ' ', l.apellido) FROM lider l WHERE l.cdp_id = c.id LIMIT 1),
@@ -161,10 +165,28 @@ def get_selectores():
                        0
                    ) AS asistencia,
                    CASE 
-                       WHEN EXISTS(SELECT 1 FROM reporte WHERE cdp_id = c.id AND fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)) THEN 'activa'
+                       WHEN c.is_active = 0 THEN 'pausada'
+                       WHEN EXISTS(SELECT 1 FROM reporte WHERE cdp_id = c.id AND fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)) THEN 'activa'
                        ELSE 'pendiente'
                    END AS estado,
-                   'Martes · 7:30 PM' AS horario
+                   CASE
+                       WHEN c.is_active = 1 AND EXISTS(SELECT 1 FROM reporte WHERE cdp_id = c.id AND fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)) THEN 1
+                       ELSE 0
+                   END AS tiene_reporte_7d,
+                   (
+                       SELECT r_last.hr_inicio
+                       FROM reporte r_last
+                       WHERE r_last.cdp_id = c.id AND r_last.hr_inicio IS NOT NULL
+                       ORDER BY r_last.fecha DESC, r_last.id DESC
+                       LIMIT 1
+                   ) AS ultimo_hr_inicio,
+                   (
+                       SELECT r_last.fecha
+                       FROM reporte r_last
+                       WHERE r_last.cdp_id = c.id AND r_last.hr_inicio IS NOT NULL
+                       ORDER BY r_last.fecha DESC, r_last.id DESC
+                       LIMIT 1
+                   ) AS ultima_fecha
             FROM cdp c
             LEFT JOIN usuario u ON c.usuario_id = u.id
             ORDER BY c.codigo
@@ -225,20 +247,60 @@ def get_estructura_context(usuario_id, is_supervisor=False):
 
     casas_context = []
     for casa in casas:
+        hr_raw = casa.get('ultimo_hr_inicio')
+        fecha_raw = casa.get('ultima_fecha')
+        if hr_raw or fecha_raw:
+            horario_calc = formatear_horario_cdp(hr_raw, fecha_raw)
+        else:
+            horario_calc = casa.get('horario') or 'Miércoles · 7:00 PM'
+
+        is_active = bool(casa.get('is_active', 1)) if casa.get('is_active') is not None else True
+        if 'tiene_reporte_7d' in casa:
+            tiene_rep = is_active and bool(casa.get('tiene_reporte_7d'))
+        else:
+            tiene_rep = is_active and (casa.get('estado') in ('activa', 'active'))
+
+        if not is_active:
+            estado = 'pausada'
+            badge_class = 'status-pausada'
+            badge_label = 'En pausa / Inactiva'
+            pendiente_7d = False
+            tiene_rep = False
+        elif tiene_rep:
+            estado = 'activa'
+            badge_class = 'status-activa'
+            badge_label = 'Reportó (últimos 7 días)'
+            pendiente_7d = False
+        else:
+            estado = 'pendiente'
+            badge_class = 'status-pendiente'
+            badge_label = 'Sin reporte reciente'
+            pendiente_7d = True
+
         casas_context.append({
             **casa,
             'red_slug': red_slug(casa['red_id']),
             'anfitrion': casa.get('anfitrion') or 'Sin anfitrión asignado',
+            'lider': casa.get('lider') or 'Sin líder asignado',
             'zona': casa.get('direccion') or 'Ubicación pendiente',
             'supervisor': casa.get('supervisor') or '',
-            'estado': casa.get('estado') or 'pendiente',
-            'horario': casa.get('horario') or 'Horario pendiente',
+            'is_active': is_active,
+            'estado': estado,
+            'tiene_reporte_7d': tiene_rep,
+            'pendiente_7d': pendiente_7d,
+            'badge_class': badge_class,
+            'badge_label': badge_label,
+            'horario': horario_calc,
             'asistencia': casa.get('asistencia') or 0,
         })
 
     total_asistencia = sum(c.get('asistencia', 0) for c in casas_context)
-    casas_activas = sum(1 for c in casas_context if c.get('estado') in ('activa', 'active'))
-    casas_pendientes = len(casas_context) - casas_activas
+    casas_activas = sum(1 for c in casas_context if c.get('is_active'))
+    casas_pausadas = sum(1 for c in casas_context if not c.get('is_active'))
+    casas_pendientes_list = [c for c in casas_context if c.get('is_active') and not c.get('tiene_reporte_7d')]
+    total_sin_reporte_7d = len(casas_pendientes_list)
+    casas_sin_reporte_ids = [c['id'] for c in casas_pendientes_list]
+    casas_sin_reporte_codigos = [c.get('codigo') or c.get('nombre') for c in casas_pendientes_list]
 
     return {
         'redes_estructura': redes_context,
@@ -246,10 +308,55 @@ def get_estructura_context(usuario_id, is_supervisor=False):
         'total_casas_estructura': len(casas_context),
         'total_asistencia_estructura': total_asistencia,
         'casas_activas_estructura': casas_activas,
-        'casas_pendientes_estructura': casas_pendientes,
+        'casas_pausadas_estructura': casas_pausadas,
+        'casas_pendientes_estructura': total_sin_reporte_7d,
+        'total_sin_reporte_7d': total_sin_reporte_7d,
+        'casas_sin_reporte_ids': casas_sin_reporte_ids,
+        'casas_sin_reporte_codigos': casas_sin_reporte_codigos,
         'estructura_mock': not db_connected,
         'estructura_vacia': not redes_context,
     }
+
+
+def get_casas_sin_reporte_7d(red_id=None):
+    """
+    Retorna la lista de Casas de Paz activas que no han reportado en los últimos 7 días.
+    Si se pasa red_id, filtra por esa red.
+    """
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                sql = """
+                    SELECT c.id, c.codigo, c.anfitrion, c.direccion, c.red_id, r.nombre AS red_nombre
+                    FROM cdp c
+                    LEFT JOIN red r ON c.red_id = r.id
+                    WHERE c.is_active = 1
+                      AND NOT EXISTS (
+                          SELECT 1 FROM reporte rep
+                          WHERE rep.cdp_id = c.id
+                            AND rep.fecha >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                      )
+                """
+                params = []
+                if red_id is not None:
+                    sql += " AND c.red_id = %s"
+                    params.append(red_id)
+                sql += " ORDER BY c.codigo ASC"
+                cur.execute(sql, tuple(params))
+                return cur.fetchall() or []
+        except Exception as e:
+            print(f"[DB] Error al obtener casas sin reporte 7d: {e}")
+            return []
+        finally:
+            conn.close()
+
+    # Mock fallback
+    casas = get_casas_demo()
+    pendientes = [c for c in casas if c.get('is_active', 1) and not c.get('tiene_reporte_7d', True)]
+    if red_id is not None:
+        pendientes = [c for c in pendientes if c.get('red_id') == red_id]
+    return pendientes
 
 
 def get_metricas(nivel, red_id=None, cdp_id=None, is_supervisor=False, supervisor_red_id=None):

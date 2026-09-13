@@ -13,6 +13,14 @@
             <h1 class="title">Directorio de Liderazgo</h1>
             <p class="description">Consulta rápida de información de contacto de líderes y sublíderes en la red de Casas de Paz.</p>
         </div>
+        {% if has_role("admin") %}
+        <div class="header-actions">
+            <a href="{{ url_for('admin.lider_crear') }}" class="btn-primary" aria-label="Agregar un nuevo líder">
+                <span class="material-symbols-outlined" aria-hidden="true">person_add</span>
+                Agregar Líder
+            </a>
+        </div>
+        {% endif %}
     </header>
 
     {% set lider_route = 'supervisor.lider' if has_role('supervisor') else 'admin.lider' %}
@@ -82,6 +90,9 @@
                         <th scope="col">Red</th>
                         <th scope="col">Casa de Paz</th>
                         <th scope="col">Teléfono</th>
+                        {% if has_role("admin") %}
+                        <th scope="col" class="text-center">Acciones</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -101,7 +112,7 @@
                         <td data-label="Casa de Paz" class="text-variant">{{ lider.cdp_nombre or 'Sin asignar' }}</td>
                         <td data-label="Teléfono" class="font-bold">
                             {% if lider.telefono %}
-                            <a href="tel:{{ lider.telefono|replace(' ', '')|replace('-', '') }}" class="btn-icon btn-call" aria-label="Llamar a {{ nombre }} al teléfono {{ lider.telefono }}" title="Llamar a {{ nombre }}">
+                            <a href="tel:{{ lider.telefono|replace(' ', '')|replace('-', '') }}" class="btn-call" aria-label="Llamar a {{ nombre }} al teléfono {{ lider.telefono }}" title="Llamar a {{ nombre }}">
                                 <span class="material-symbols-outlined" aria-hidden="true">call</span>
                                 <span>Llamar</span>
                             </a>
@@ -109,9 +120,21 @@
                             <span class="text-variant">Sin teléfono</span>
                             {% endif %}
                         </td>
+                        {% if has_role("admin") %}
+                        <td data-label="Acciones" class="text-center">
+                            <div class="action-buttons">
+                                <a href="{{ url_for('admin.lider_editar', id=lider.id) }}" class="btn-icon btn-edit" aria-label="Editar o reasignar líder {{ nombre }}" title="Editar o Reasignar Líder">
+                                    <span class="material-symbols-outlined text-secondary" aria-hidden="true">edit</span>
+                                </a>
+                                <button type="button" class="btn-icon btn-delete" data-id="{{ lider.id }}" data-nombre="{{ nombre }}" aria-label="Eliminar líder {{ nombre }}" title="Eliminar Líder">
+                                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                </button>
+                            </div>
+                        </td>
+                        {% endif %}
                     </tr>
                     {% else %}
-                    <tr><td colspan="5" class="empty-state">No se encontraron líderes con los filtros seleccionados.</td></tr>
+                    <tr><td colspan="{{ 6 if has_role('admin') else 5 }}" class="empty-state">No se encontraron líderes con los filtros seleccionados.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -172,6 +195,27 @@
         </div>
     </footer>
 </main>
+
+{% if has_role("admin") %}
+<div id="deleteModal" class="modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle" aria-hidden="true">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="material-symbols-outlined modal-icon" aria-hidden="true">warning</span>
+            <h3 id="deleteModalTitle">Confirmar Eliminación</h3>
+        </div>
+        <p class="modal-text">¿Estás seguro de que deseas eliminar al líder <strong id="deleteLeaderName"></strong>? Esta acción dará de baja su registro en el sistema.</p>
+        <p class="modal-text-bold">Escribe <span class="highlight">ELIMINAR</span> para confirmar:</p>
+        <input type="text" id="deleteInput" class="modal-input" placeholder="ELIMINAR" autocomplete="off" aria-label="Escriba ELIMINAR para confirmar la baja del líder">
+        <div class="modal-actions">
+            <button type="button" class="btn-cancel" onclick="closeDeleteModal()">Cancelar</button>
+            <form id="deleteLeaderForm" method="POST" action="">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn-confirm-delete" id="btnConfirmDelete" disabled>Eliminar</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block custom_scripts %}

@@ -7,22 +7,22 @@
 
 <form class="crud-form" method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-    <span class="material-symbols-outlined form-watermark">nest_eco_leaf</span>
 
     <div class="form-grid">
         
-        <!-- Campo sin ícono: lo envolvemos en input-wrapper para mantener la consistencia del CSS -->
         <div class="form-group full-width">
             <label for="nombre">Nombre de la Red</label>
-            <div class="input-wrapper">
+            <div class="input-wrapper icon-left">
+                <span class="material-symbols-outlined input-icon">hub</span>
                 <input type="text" id="nombre" name="nombre" value="{{ red.nombre if red else '' }}" placeholder="Ej. Red de Crecimiento Norte" required>
             </div>
         </div>
 
-        <!-- Selector: Aplicamos input-wrapper e icon-right -->
+        <!-- Selector: Aplicamos input-wrapper e icon-left/icon-right -->
         <div class="form-group full-width">
             <label for="supervisor_id">Supervisor Asignado</label>
-            <div class="input-wrapper icon-right">
+            <div class="input-wrapper icon-left icon-right">
+                <span class="material-symbols-outlined input-icon">manage_accounts</span>
                 <select id="supervisor_id" name="supervisor_id">
                     <option value="" {% if not red or not red.supervisor_id %}selected{% endif %}>-- Sin supervisor asignado --</option>
                     {% for sup in supervisores_disponibles %}
@@ -44,7 +44,7 @@
             <a href="{{ url_for('admin.estructura') }}" class="btn-cancel">Cancelar</a>
         </div>
         {% if is_edit %}
-        <button type="button" class="btn-delete-text" onclick="if(confirm('¿Estás seguro de que deseas eliminar esta red? Esta acción no se puede deshacer.')) { document.getElementById('formEliminarRed').submit(); }">
+        <button type="button" class="btn-delete-text" onclick="openDeleteModal()">
             <span class="material-symbols-outlined">delete_outline</span>
             Eliminar Red
         </button>
@@ -57,5 +57,54 @@
 <form id="formEliminarRed" action="{{ url_for('admin.red_eliminar', id=recurso_id) }}" method="POST" class="hidden-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 </form>
+
+{% set total_casas = red.total_casas if red and red.total_casas is defined else 0 %}
+{% if total_casas > 0 %}
+<!-- Modal Informativo: Red con Casas de Paz vinculadas -->
+<div id="deleteBlockedModal" class="modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="deleteBlockedTitle">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="material-symbols-outlined modal-icon modal-icon-blocked" aria-hidden="true">block</span>
+            <h3 id="deleteBlockedTitle">No es posible eliminar la red</h3>
+        </div>
+        <p class="modal-text">
+            La red <strong>{{ red.nombre }}</strong> tiene actualmente <strong>{{ total_casas }}</strong> {{ 'Casa de Paz vinculada' if total_casas == 1 else 'Casas de Paz vinculadas' }}.
+        </p>
+        <p class="modal-text">
+            Para poder eliminarla, primero debes reasignar o desvincular sus Casas de Paz. Si deseas suspender sus actividades sin perder la información, puedes <strong>poner la red en pausa</strong> desde la vista de estructura.
+        </p>
+        <div class="modal-actions">
+            <button type="button" class="btn-cancel" onclick="closeDeleteModal()">Entendido</button>
+        </div>
+    </div>
+</div>
+{% else %}
+<!-- Modal de Confirmación: Red sin Casas de Paz -->
+<div id="deleteConfirmModal" class="modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="deleteConfirmTitle">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="material-symbols-outlined modal-icon" aria-hidden="true">warning</span>
+            <h3 id="deleteConfirmTitle">Confirmar Eliminación</h3>
+        </div>
+        <p class="modal-text">
+            ¿Estás seguro de que deseas eliminar la red <strong>{{ red.nombre }}</strong>? Esta acción dará de baja la red del sistema de forma permanente.
+        </p>
+        <p class="modal-text-bold">Escribe <span class="highlight">ELIMINAR</span> para confirmar:</p>
+        <input type="text" id="deleteInput" class="modal-input" placeholder="ELIMINAR" autocomplete="off" aria-label="Escriba ELIMINAR para confirmar la eliminación de la red">
+        <div class="modal-actions">
+            <button type="button" class="btn-cancel" onclick="closeDeleteModal()">Cancelar</button>
+            <button type="button" class="btn-confirm-delete" id="btnConfirmDelete" disabled onclick="document.getElementById('formEliminarRed').submit();">
+                <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                Eliminar Red
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block custom_scripts %}
+{% if is_edit %}
+<script src="{{ url_for('static', filename='scripts/admin/form_redes.js') }}" defer></script>
 {% endif %}
 {% endblock %}

@@ -524,8 +524,3 @@
     color: var(--primary, #ffb4ab);
 }
 
-.form-watermark,
-[data-theme="dark"] .form-watermark {
-    display: none !important;
-}
-

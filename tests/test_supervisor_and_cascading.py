@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tests unitarios para:
 1. Fix de seguridad: Supervisor sin red asignada (get_supervisor_red_id retorna None y sin_red_asignada=True).
 2. Filtros en cascada: Coerción y deducción de red_id / cdp_id en get_dashboard_context.
@@ -117,6 +117,76 @@ class TestSupervisorAndCascading(unittest.TestCase):
         success, msg = crear_nuevo_usuario(form_data)
         self.assertTrue(success)
         mock_asignar.assert_called_once_with(fake_cursor, 'new-uuid-456', 5)
+
+    @patch('services.user_service.get_db_connection')
+    @patch('services.user_service.asignar_supervisor_a_red')
+    def test_actualizar_usuario_supervisor_with_red(self, mock_asignar, mock_conn):
+        """Actualizar usuario a supervisor asigna la red y libera posibles CDPs."""
+        from services.user_service import actualizar_usuario_admin
+        fake_conn = MagicMock()
+        fake_cursor = MagicMock()
+        fake_cursor.fetchone.return_value = None  # username único
+        fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+        mock_conn.return_value = fake_conn
+
+        form_data = {
+            'nombre': 'Carlos',
+            'apellido': 'Perez',
+            'username': 'carlosp',
+            'password': '',
+            'tipo_usuario': 'supervisor',
+            'red_id': '3'
+        }
+        success, msg = actualizar_usuario_admin('user-uuid-1', form_data)
+        self.assertTrue(success)
+        mock_asignar.assert_called_once_with(fake_cursor, 'user-uuid-1', 3)
+
+    @patch('services.user_service.get_db_connection')
+    @patch('services.user_service.asignar_usuario_a_cdp')
+    def test_actualizar_usuario_lider_with_cdp(self, mock_asignar, mock_conn):
+        """Actualizar usuario a lider_cdp asigna el CDP y libera posibles redes."""
+        from services.user_service import actualizar_usuario_admin
+        fake_conn = MagicMock()
+        fake_cursor = MagicMock()
+        fake_cursor.fetchone.return_value = None  # username único
+        fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+        mock_conn.return_value = fake_conn
+
+        form_data = {
+            'nombre': 'Maria',
+            'apellido': 'Gomez',
+            'username': 'mariag',
+            'password': '',
+            'tipo_usuario': 'lider_cdp',
+            'cdp_id': '7'
+        }
+        success, msg = actualizar_usuario_admin('user-uuid-2', form_data)
+        self.assertTrue(success)
+        mock_asignar.assert_called_once_with(fake_cursor, 'user-uuid-2', 7)
+
+    @patch('services.user_service.get_db_connection')
+    def test_actualizar_usuario_admin_clears_assignments(self, mock_conn):
+        """Actualizar usuario a admin desvincula red y CDP."""
+        from services.user_service import actualizar_usuario_admin
+        fake_conn = MagicMock()
+        fake_cursor = MagicMock()
+        fake_cursor.fetchone.return_value = None  # username único
+        fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+        mock_conn.return_value = fake_conn
+
+        form_data = {
+            'nombre': 'Admin',
+            'apellido': 'General',
+            'username': 'admingen',
+            'password': '',
+            'tipo_usuario': 'admin',
+        }
+        success, msg = actualizar_usuario_admin('user-uuid-3', form_data)
+        self.assertTrue(success)
+        # Verificar que se ejecutaron queries de limpieza
+        executed_sqls = [call[0][0] for call in fake_cursor.execute.call_args_list]
+        self.assertTrue(any('UPDATE red SET supervisor_id = NULL' in sql for sql in executed_sqls))
+        self.assertTrue(any('UPDATE cdp SET usuario_id = NULL' in sql for sql in executed_sqls))
 
 
 if __name__ == '__main__':

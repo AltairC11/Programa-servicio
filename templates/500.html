@@ -10,16 +10,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles/404.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles/admin/dark_theme.css') }}">
     <link rel="icon" href="{{ url_for('static', filename='logo2.webp') }}" type="image/webp">
-    <script>
-        (function() {
-            try {
-                var t = localStorage.getItem('theme');
-                if (t === 'dark') {
-                    document.documentElement.setAttribute('data-theme', 'dark');
-                }
-            } catch (e) {}
-        })();
-    </script>
+    <script src="{{ url_for('static', filename='scripts/theme_init.js') }}"></script>
 </head>
 <body class="centro">
     <main class="error-page">
