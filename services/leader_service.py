@@ -165,23 +165,43 @@ def crear_nuevo_usuario(form_data):
         conn.close()
 
 
-def get_opciones_asignacion():
+def get_opciones_asignacion(usuario_id=None):
     """
     Obtiene redes y CDPs disponibles para los selectores de asignación en form_usuario.
+    Si se proporciona usuario_id, incluye también las asignaciones actuales de ese usuario.
     """
     conn = get_db_connection()
-    if not conn:
-        return [], []
-    try:
-        with conn.cursor() as cursor:
-            redes = get_redes_disponibles(cursor)
-            cdps = get_cdps_disponibles(cursor)
+    if conn:
+        try:
+            with conn.cursor() as cursor:
+                redes = get_redes_disponibles(cursor, usuario_id=usuario_id)
+                cdps = get_cdps_disponibles(cursor, usuario_id=usuario_id)
+            return redes, cdps
+        except Exception as e:
+            current_app.logger.error("Error obteniendo opciones de asignación: %s", e)
+            return [], []
+        finally:
+            conn.close()
+    elif mock_mode_enabled():
+        redes_demo = get_redes_demo()
+        redes = [
+            {'id': r['id'], 'nombre': r['nombre']}
+            for r in redes_demo
+            if not r.get('supervisor_id') or (usuario_id and str(r.get('supervisor_id')) == str(usuario_id))
+        ]
+        casas_demo = get_casas_demo()
+        cdps = [
+            {
+                'id': c['id'],
+                'codigo': c['codigo'],
+                'direccion': c.get('direccion', ''),
+                'red_nombre': c.get('red_nombre', '')
+            }
+            for c in casas_demo
+            if not c.get('lider_id') or (usuario_id and str(c.get('lider_id')) == str(usuario_id))
+        ]
         return redes, cdps
-    except Exception as e:
-        current_app.logger.error("Error obteniendo opciones de asignación: %s", e)
-        return [], []
-    finally:
-        conn.close()
+    return [], []
 
 
 def get_supervisores_disponibles_servicio():

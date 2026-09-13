@@ -2,9 +2,14 @@
 from flask import current_app
 
 from database import get_db_connection
-from db_queries import get_usuarios
-from mock_data import get_mock_usuarios
+from db_queries import (
+    get_usuarios,
+    asignar_supervisor_a_red,
+    asignar_usuario_a_cdp
+)
+from mock_data import get_mock_usuarios, get_redes_demo, get_casas_demo
 from services.dashboard_service import mock_mode_enabled
+from utils.cache import invalidate_dashboard_cache
 
 
 def get_usuarios_context(search='', rol='', page=1, per_page=5):
@@ -50,28 +55,49 @@ def get_usuarios_context(search='', rol='', page=1, per_page=5):
 
 
 def obtener_usuario_por_id(usuario_id):
-    """Obtiene los datos de un usuario por su ID (UUID)."""
+    """Obtiene los datos de un usuario por su ID (UUID), incluyendo asignaciones de red o CDP."""
     conn = get_db_connection()
-    if not conn:
+    if conn:
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT u.id, u.username, u.nombre, u.apellido, u.tipo_usuario, u.is_active,
+                           r.id AS red_id, r.nombre AS red_nombre,
+                           c.id AS cdp_id, c.codigo AS cdp_codigo
+                    FROM usuario u
+                    LEFT JOIN red r ON r.supervisor_id = u.id
+                    LEFT JOIN cdp c ON c.usuario_id = u.id
+                    WHERE u.id = %s
+                """, (str(usuario_id),))
+                return cursor.fetchone()
+        except Exception as e:
+            current_app.logger.error("Error obteniendo usuario %s: %s", usuario_id, e)
+            return None
+        finally:
+            conn.close()
+    elif mock_mode_enabled():
+        usuarios = get_mock_usuarios()
+        u = next((item for item in usuarios if str(item.get('id')) == str(usuario_id)), None)
+        if u:
+            u_data = dict(u)
+            u_data['tipo_usuario'] = u_data.get('rol', u_data.get('tipo_usuario', 'admin'))
+            redes = get_redes_demo()
+            red_asig = next((r for r in redes if str(r.get('supervisor_id')) == str(usuario_id)), None)
+            u_data['red_id'] = red_asig['id'] if red_asig else None
+            u_data['red_nombre'] = red_asig['nombre'] if red_asig else None
+            casas = get_casas_demo()
+            cdp_asig = next((c for c in casas if str(c.get('lider_id')) == str(usuario_id)), None)
+            u_data['cdp_id'] = cdp_asig['id'] if cdp_asig else None
+            u_data['cdp_codigo'] = cdp_asig['codigo'] if cdp_asig else None
+            return u_data
         return None
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT id, username, nombre, apellido, tipo_usuario, is_active
-                FROM usuario
-                WHERE id = %s
-            """, (str(usuario_id),))
-            return cursor.fetchone()
-    except Exception as e:
-        current_app.logger.error("Error obteniendo usuario %s: %s", usuario_id, e)
-        return None
-    finally:
-        conn.close()
+    return None
 
 
 def actualizar_usuario_admin(usuario_id, form_data):
     """
-    Actualiza los datos de un usuario desde la administración con validaciones de seguridad.
+    Actualiza los datos de un usuario desde la administración con validaciones de seguridad
+    y gestión transaccional de asignaciones ministeriales (red o CDP).
     """
     from utils.validators import (
         validate_username,
@@ -130,7 +156,45 @@ def actualizar_usuario_admin(usuario_id, form_data):
                     WHERE id = %s
                 """, (res_nom, res_ape, res_user, tipo_usuario, str(usuario_id)))
 
+            # Gestión de asignaciones ministeriales según el rol
+            red_id_raw = form_data.get('red_id', '').strip()
+            cdp_id_raw = form_data.get('cdp_id', '').strip()
+
+            if tipo_usuario == 'supervisor':
+                # Si tenía CDP asignada, desvincular
+                cursor.execute("UPDATE cdp SET usuario_id = NULL WHERE usuario_id = %s", (str(usuario_id),))
+                if red_id_raw:
+                    try:
+                        red_id = int(red_id_raw)
+                        cursor.execute("UPDATE red SET supervisor_id = NULL WHERE supervisor_id = %s AND id != %s", (str(usuario_id), red_id))
+                        asignar_supervisor_a_red(cursor, usuario_id, red_id)
+                    except (ValueError, TypeError):
+                        pass
+                else:
+                    cursor.execute("UPDATE red SET supervisor_id = NULL WHERE supervisor_id = %s", (str(usuario_id),))
+
+            elif tipo_usuario == 'lider_cdp':
+                # Si era supervisor, desvincular de redes
+                cursor.execute("UPDATE red SET supervisor_id = NULL WHERE supervisor_id = %s", (str(usuario_id),))
+                if cdp_id_raw:
+                    try:
+                        cdp_id = int(cdp_id_raw)
+                        cursor.execute("UPDATE cdp SET usuario_id = NULL WHERE usuario_id = %s AND id != %s", (str(usuario_id), cdp_id))
+                        asignar_usuario_a_cdp(cursor, usuario_id, cdp_id)
+                    except (ValueError, TypeError):
+                        pass
+                else:
+                    cursor.execute("UPDATE cdp SET usuario_id = NULL WHERE usuario_id = %s", (str(usuario_id),))
+
+            else:  # admin
+                cursor.execute("UPDATE red SET supervisor_id = NULL WHERE supervisor_id = %s", (str(usuario_id),))
+                cursor.execute("UPDATE cdp SET usuario_id = NULL WHERE usuario_id = %s", (str(usuario_id),))
+
         conn.commit()
+        try:
+            invalidate_dashboard_cache()
+        except Exception:
+            pass
         return True, "Usuario actualizado exitosamente."
     except Exception as e:
         conn.rollback()

@@ -3,7 +3,7 @@ Rutas del administrador: /admin/...
 """
 from flask import Blueprint, render_template, request, session, redirect, url_for, flash
 from database import get_db_connection
-from db_queries import eliminar_pausar_cdp
+from db_queries import get_todas_las_redes, obtener_cdp_admin
 from utils.auth import login_required, role_required
 from services.dashboard_service import get_dashboard_context, get_estructura_context
 from services.user_service import get_usuarios_context
@@ -18,6 +18,13 @@ from services.leader_service import (
     toggle_red_servicio,
     eliminar_red_servicio,
 )
+from services.cdp_service import (
+    crear_cdp_servicio,
+    actualizar_cdp_servicio,
+    eliminar_cdp_servicio,
+    get_lideres_cdp_disponibles_servicio,
+)
+
 from services.report_service import get_reportes_context
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -88,6 +95,10 @@ from services.user_service import get_usuarios_context, obtener_usuario_por_id, 
 @role_required("admin")
 def usuario_editar(id):
     usuario_data = obtener_usuario_por_id(id)
+    if not usuario_data:
+        flash("Usuario no encontrado.", "danger")
+        return redirect(url_for('admin.usuario'))
+
     if request.method == 'POST':
         success, message = actualizar_usuario_admin(id, request.form)
         if success:
@@ -95,6 +106,9 @@ def usuario_editar(id):
             return redirect(url_for('admin.usuario'))
         else:
             flash(message, "danger")
+            usuario_data = {**usuario_data, **request.form.to_dict()}
+
+    redes_disponibles, cdps_disponibles = get_opciones_asignacion(usuario_id=id)
 
     return render_template(
         'form_usuario.html',
@@ -103,7 +117,9 @@ def usuario_editar(id):
         link='usuario',
         recurso_id=id,
         usuario_data=usuario_data,
-        is_edit=True
+        is_edit=True,
+        redes_disponibles=redes_disponibles,
+        cdps_disponibles=cdps_disponibles,
     )
 
 
@@ -182,11 +198,38 @@ def lider_eliminar(id):
     return redirect(url_for('admin.lider'))
 
 
-@admin_bp.route('/casa_de_paz/crear')
+@admin_bp.route('/casa_de_paz/crear', methods=['GET', 'POST'])
 @login_required
 @role_required("admin")
 def casa_de_paz_crear():
-    return render_template('form_cdp.html', title='Casas de Paz', breadcrumb='Casa de paz', link='casa_de_paz', is_edit=False)
+
+    if request.method == 'POST':
+        success, mensaje = crear_cdp_servicio(request.form)
+
+        if success:
+            flash(mensaje, 'success')
+            return redirect(url_for('admin.estructura'))
+        else:
+            flash(mensaje, 'danger')
+
+    conn = get_db_connection()
+    redes = []
+    if conn:
+        with conn.cursor() as cursor:
+            redes = get_todas_las_redes(cursor)
+        conn.close()
+        
+    lideres_disponibles = get_lideres_cdp_disponibles_servicio()
+
+    return render_template(
+        'form_cdp.html', 
+        title='Casas de Paz', 
+        breadcrumb='Casa de paz', 
+        link='casa_de_paz',
+        redes=redes, 
+        lideres_disponibles=lideres_disponibles,
+        is_edit=False
+    )
 
 
 @admin_bp.route('/casa_de_paz/<id>')
@@ -198,17 +241,54 @@ def casa_de_paz(id):
     return render_template('detalles_cdp.html', title='Detalles de Casa de Paz', breadcrumb='Casa de paz', link='casa_de_paz', recurso_id=id, cdp=cdp)
 
 
-@admin_bp.route('/casa_de_paz/<id>/editar')
+@admin_bp.route('/casa_de_paz/<id>/editar', methods=['GET', 'POST'])
 @login_required
 @role_required("admin")
 def casa_de_paz_editar(id):
-    return render_template('form_cdp.html', title='Casas de Paz', breadcrumb='Casa de paz', link='casa_de_paz', recurso_id=id, is_edit=True)
+
+    conn = get_db_connection()
+    cdp_data = None
+    redes = []
+
+    if conn:
+        with conn.cursor() as cursor:
+            cdp_data = obtener_cdp_admin(cursor, id)
+            redes = get_todas_las_redes(cursor)
+        conn.close()
+
+    if not cdp_data:
+        flash("La Casa de Paz no existe.", 'danger')
+        return redirect(url_for('admin.estructura'))
+
+    if request.method == 'POST':
+        success, mensaje = actualizar_cdp_servicio(id, request.form)
+        if success:
+            flash(mensaje, 'success')
+            return redirect(url_for('admin.estructura'))
+        else:
+            flash(mensaje, 'danger')
+
+    lideres_disponibles = get_lideres_cdp_disponibles_servicio(cdp_id=id)
+
+    return render_template(
+        'form_cdp.html', 
+        title='Casas de Paz', 
+        breadcrumb='Casa de paz', 
+        link='casa_de_paz', 
+        recurso_id=id, 
+        cdp=cdp_data,
+        redes=redes,
+        lideres_disponibles=lideres_disponibles,
+        is_edit=True
+    )
 
 @admin_bp.route('/casa_de_paz/<id>/eliminar', methods=['POST'])
 @login_required
 @role_required('admin')
 def casa_de_paz_eliminar(id):
-    exito, accion, mensaje = eliminar_pausar_cdp()
+    exito, categoria, mensaje = eliminar_cdp_servicio(id)
+    flash(mensaje, categoria)
+    return redirect(url_for('admin.estructura'))
 
 @admin_bp.route('/red/crear', methods=['GET', 'POST'])
 @login_required

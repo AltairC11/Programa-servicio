@@ -103,8 +103,8 @@
           <p class="card-kicker">Datos Principales</p>
           <h2 id="info-heading">Información del Centro</h2>
         </div>
-        <span class="status-pill {{ 'active' if not cdp or cdp.estado in ['activa', 'active'] else 'pendiente' }}">
-          {{ cdp.estado|replace('_', ' ')|capitalize if cdp else 'Activa' }}
+        <span class="status-pill {{ 'active' if cdp and cdp.is_active else 'inactiva' }}">
+          {{ 'Activa' if cdp and cdp.is_active else 'Inactiva / Pausada' }}
         </span>
       </div>
 
@@ -125,40 +125,88 @@
         <div class="info-item">
           <div class="info-meta">
             <span class="info-label">Anfitrión</span>
-            <span class="info-value">{{ cdp.anfitrion if cdp else 'David Gómez y Elena Ríos' }}</span>
+            <span class="info-value">{{ cdp.anfitrion if cdp else 'Sin anfitrión asignado' }}</span>
           </div>
         </div>
 
         <div class="info-item">
           <div class="info-meta">
-            <span class="info-label">Líder Asignado</span>
-            <span class="info-value">{{ cdp.lider_nombre if cdp else 'Juan Carlos Pérez' }}</span>
+            <span class="info-label">Usuario del Sistema</span>
+            {% if cdp and cdp.usuario_username %}
+            <span class="info-value">
+              <strong>@{{ cdp.usuario_username }}</strong>
+              {% if cdp.usuario_nombre or cdp.usuario_apellido %}
+              <span class="user-subname">· {{ cdp.usuario_nombre }} {{ cdp.usuario_apellido }}</span>
+              {% endif %}
+            </span>
+            {% else %}
+            <span class="info-value text-unassigned">Sin cuenta vinculada</span>
+            {% endif %}
           </div>
-          {% if cdp and cdp.telefono_wa %}
-          <a href="https://wa.me/{{ cdp.telefono_wa }}" target="_blank" rel="noopener noreferrer" class="btn-action-sm btn-whatsapp" aria-label="Contactar al líder por WhatsApp">
-            <span class="material-symbols-outlined" aria-hidden="true">chat</span>
-            <span>WhatsApp</span>
+          {% if has_role("admin") and cdp and cdp.usuario_id %}
+          <a href="{{ url_for('admin.usuario_editar', id=cdp.usuario_id) }}" class="btn-action-sm btn-user" aria-label="Gestionar cuenta de usuario asignada" title="Editar cuenta de usuario">
+            <span class="material-symbols-outlined" aria-hidden="true">manage_accounts</span>
+            <span>Gestionar</span>
           </a>
           {% endif %}
         </div>
 
         <div class="info-item">
           <div class="info-meta">
-            <span class="info-label">Teléfono de Contacto</span>
-            <span class="info-value">{{ cdp.telefono if cdp else '+58 412 123 4567' }}</span>
+            <span class="info-label">Líder Asignado</span>
+            <span class="info-value">{{ cdp.lider_nombre if cdp and cdp.lider_nombre else 'Sin líder asignado' }}</span>
+          </div>
+        </div>
+
+        <div class="info-item">
+          <div class="info-meta">
+            <span class="info-label">Teléfono de la Casa</span>
+            <span class="info-value">{{ cdp.telefono if cdp and cdp.telefono else 'No registrado' }}</span>
           </div>
           {% if cdp and cdp.telefono and cdp.telefono != 'No registrado' %}
-          <a href="tel:{{ cdp.telefono }}" class="btn-action-sm btn-call" aria-label="Llamar al teléfono de contacto">
-            <span class="material-symbols-outlined" aria-hidden="true">call</span>
-            <span>Llamar</span>
-          </a>
+          <div class="info-item-actions">
+            {% if cdp.telefono_wa %}
+            <a href="https://wa.me/{{ cdp.telefono_wa }}" target="_blank" rel="noopener noreferrer" class="btn-action-sm btn-whatsapp" aria-label="Contactar a la Casa por WhatsApp">
+              <span class="material-symbols-outlined" aria-hidden="true">chat</span>
+              <span>WhatsApp</span>
+            </a>
+            {% endif %}
+            <a href="tel:{{ cdp.telefono }}" class="btn-action-sm btn-call" aria-label="Llamar al teléfono de la Casa">
+              <span class="material-symbols-outlined" aria-hidden="true">call</span>
+              <span>Llamar</span>
+            </a>
+          </div>
           {% endif %}
         </div>
 
         <div class="info-item">
           <div class="info-meta">
             <span class="info-label">Horario de Reunión</span>
-            <span class="info-value">{{ cdp.horario if cdp else 'Martes · 7:30 PM' }}</span>
+            <span class="info-value">{{ cdp.horario if cdp and cdp.horario else 'Miércoles · 7:00 PM' }}</span>
+          </div>
+        </div>
+
+        <div class="info-item">
+          <div class="info-meta">
+            <span class="info-label">Reporte Semanal (7 días)</span>
+            <span class="info-value">
+              {% if not cdp or not cdp.is_active %}
+                <span class="badge-reporte-item neutral">
+                  <span class="material-symbols-outlined" style="font-size: 0.95rem;">pause_circle</span>
+                  Casa en pausa
+                </span>
+              {% elif cdp.reporte_reciente_7d or cdp.estado_reporte_7d == 'al_dia' %}
+                <span class="badge-reporte-item ok">
+                  <span class="material-symbols-outlined" style="font-size: 0.95rem;">check_circle</span>
+                  Al día {% if cdp.dias_desde_ultimo_reporte is not none %}(hace {{ cdp.dias_desde_ultimo_reporte }} día{% if cdp.dias_desde_ultimo_reporte != 1 %}s{% endif %}){% endif %}
+                </span>
+              {% else %}
+                <span class="badge-reporte-item pending">
+                  <span class="material-symbols-outlined" style="font-size: 0.95rem;">schedule</span>
+                  Pendiente {% if cdp.dias_desde_ultimo_reporte is not none %}(hace {{ cdp.dias_desde_ultimo_reporte }} días){% else %}(sin reportes){% endif %}
+                </span>
+              {% endif %}
+            </span>
           </div>
         </div>
       </div>

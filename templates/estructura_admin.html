@@ -1,7 +1,7 @@
 {% extends "admin_layout.html" %} {% block title %}- Estructura{% endblock %}
 
 {% block custom_styles %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles/admin/estructura.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/admin/estructura.css') }}?v=1789287500">
 {% endblock %}
 
 {% block content %}
@@ -138,13 +138,35 @@
                 </div>
                 <div class="search-bar">
                     <span class="material-symbols-outlined icon-search">search</span>
-                    <input type="text" placeholder="Buscar por anfitrión o zona...">
+                    <input type="text" id="casasSearchInput" placeholder="Buscar por código, líder, anfitrión o zona..." aria-label="Buscar Casas de Paz">
+                </div>
+            </div>
+
+            <div class="alert-banner-reportes {% if not total_sin_reporte_7d or total_sin_reporte_7d == 0 %}is-hidden{% endif %}" id="bannerReportesPendientes" data-total-pendientes="{{ total_sin_reporte_7d|default(0) }}" data-casas-pendientes="{{ casas_sin_reporte_codigos|join(', ') }}">
+                <div class="alert-banner-main">
+                    <span class="material-symbols-outlined alert-banner-icon">notification_important</span>
+                    <div class="alert-banner-info">
+                        <strong class="alert-banner-title">Reportes de la Semana Pendientes</strong>
+                        <p class="alert-banner-text">
+                            <strong>{{ total_sin_reporte_7d|default(0) }} Casa{% if total_sin_reporte_7d != 1 %}s{% endif %} de Paz activa{% if total_sin_reporte_7d != 1 %}s{% endif %}</strong> no ha{% if total_sin_reporte_7d != 1 %}n{% endif %} enviado reporte en los últimos 7 días.
+                        </p>
+                    </div>
+                </div>
+                <div class="alert-banner-actions">
+                    <button type="button" class="btn-banner-filter" id="btnFiltrarPendientes" title="Filtrar cuadrícula para ver solo casas pendientes">
+                        <span class="material-symbols-outlined">filter_list</span>
+                        <span>Ver {{ total_sin_reporte_7d|default(0) }} pendientes</span>
+                    </button>
+                    <button type="button" class="btn-banner-filter btn-banner-all is-hidden" id="btnVerTodasCasas" title="Mostrar todas las casas">
+                        <span class="material-symbols-outlined">restart_alt</span>
+                        <span>Ver todas</span>
+                    </button>
                 </div>
             </div>
 
             <div class="casas-grid">
                 {% for casa in casas_estructura %}
-                <article class="casa-card" data-red="{{ casa.red_slug }}">
+                <article class="casa-card" data-red="{{ casa.red_slug }}" data-search="{{ casa.codigo }} {{ casa.anfitrion }} {{ casa.lider }} {{ casa.zona }}" data-pendiente="{{ '1' if casa.pendiente_7d else '0' }}" data-activa="{{ '1' if casa.is_active else '0' }}" data-reporte-reciente="{{ '1' if casa.tiene_reporte_7d else '0' }}" data-pendiente-7d="{{ '1' if casa.pendiente_7d else '0' }}" data-is-active="{{ '1' if casa.is_active else '0' }}">
                     <div class="casa-header">
                         <div class="casa-info-top">
                             <div class="casa-icon"><span class="material-symbols-outlined filled">home</span></div>
@@ -153,11 +175,26 @@
                                 <span class="casa-zone">{{ casa.zona }}</span>
                             </div>
                         </div>
-                        <span class="status status-{{ casa.estado }}">{{ casa.estado|replace('_', ' ')|upper }}</span>
+                        <div class="casa-status-wrap">
+                            {% if not casa.is_active %}
+                            <span class="status status-pausada" title="Casa en pausa / inactiva">PAUSADA</span>
+                            {% elif casa.tiene_reporte_7d %}
+                            <span class="status status-activa" title="Reportó en los últimos 7 días">
+                                <span class="material-symbols-outlined icon-status">check_circle</span> AL DÍA
+                            </span>
+                            {% else %}
+                            <span class="status status-pendiente" title="Sin reporte en los últimos 7 días">
+                                <span class="material-symbols-outlined icon-status">schedule</span> SIN REPORTE
+                            </span>
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="casa-details">
+                        {% if casa.lider and casa.lider != 'Sin líder' and casa.lider != 'Sin líder asignado' %}
+                        <div class="detail-row"><span class="material-symbols-outlined">shield_person</span><span>Líder: <strong>{{ casa.lider }}</strong></span></div>
+                        {% endif %}
                         <div class="detail-row"><span class="material-symbols-outlined">person</span><span>Anfitrión: <strong>{{ casa.anfitrion }}</strong></span></div>
-                        <div class="detail-row"><span class="material-symbols-outlined">calendar_today</span><span>{{ casa.horario }}</span></div>
+                        <div class="detail-row"><span class="material-symbols-outlined">calendar_today</span><span>{{ casa.horario or 'Miércoles · 7:00 PM' }}</span></div>
                     </div>
                     <div class="casa-footer">
                         <div class="attendance"><span class="material-symbols-outlined">groups</span><span>{{ casa.asistencia }} Asistentes promedio</span></div>
@@ -185,5 +222,5 @@
     </div>
 </main>
 
-<script src="{{ url_for('static', filename='scripts/estructura.js') }}" defer></script>
+<script src="{{ url_for('static', filename='scripts/estructura.js') }}?v=1789287500" defer></script>
 {% endblock %}

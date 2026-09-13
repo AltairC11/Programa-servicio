@@ -12,7 +12,6 @@
     <div class="user-main-form">
         <form class="crud-form" method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <span class="material-symbols-outlined form-watermark" style="font-variation-settings: 'FILL' 1;">pigeon</span>
 
             <div class="form-grid">
                 
@@ -52,38 +51,37 @@
                     </div>
                 </div>
 
-                {% if not is_edit %}
-                <!-- Asignación Ministerial Opcional -->
-                <div id="grupo-asignacion-red" class="form-group full-width" style="display: none;">
+                {% set current_rol = usuario_data.tipo_usuario if usuario_data and usuario_data.tipo_usuario else 'lider_cdp' %}
+                <!-- Asignación Ministerial Condicional según Rol -->
+                <div id="grupo-asignacion-red" class="form-group full-width" {% if current_rol != 'supervisor' %}style="display: none;"{% endif %}>
                     <label for="red_id">Asignar Red Ministerial (Opcional)</label>
                     <div class="input-wrapper icon-left icon-right">
                         <span class="material-symbols-outlined input-icon">lan</span>
                         <select id="red_id" name="red_id">
                             <option value="">-- Sin asignar por ahora (podrás asignarla después) --</option>
                             {% for red in redes_disponibles %}
-                            <option value="{{ red.id }}">{{ red.nombre }}</option>
+                            <option value="{{ red.id }}" {% if usuario_data and ((usuario_data.red_id is defined and usuario_data.red_id|string == red.id|string) or (usuario_data.get and usuario_data.get('red_id')|string == red.id|string)) %}selected{% endif %}>{{ red.nombre }}</option>
                             {% endfor %}
                         </select>
                         <span class="material-symbols-outlined input-icon">expand_more</span>
                     </div>
-                    <span class="input-hint">Redes que actualmente no tienen supervisor asignado.{% if not redes_disponibles %} (No hay redes disponibles sin supervisor){% endif %}</span>
+                    <span class="input-hint">Redes que actualmente no tienen supervisor asignado.{% if is_edit and usuario_data and usuario_data.red_nombre %} (Actualmente asignado a: <strong>{{ usuario_data.red_nombre }}</strong>){% endif %}{% if not redes_disponibles %} (No hay redes disponibles sin supervisor){% endif %}</span>
                 </div>
 
-                <div id="grupo-asignacion-cdp" class="form-group full-width" style="display: none;">
+                <div id="grupo-asignacion-cdp" class="form-group full-width" {% if current_rol != 'lider_cdp' %}style="display: none;"{% endif %}>
                     <label for="cdp_id">Asignar Casa de Paz (Opcional)</label>
                     <div class="input-wrapper icon-left icon-right">
                         <span class="material-symbols-outlined input-icon">home</span>
                         <select id="cdp_id" name="cdp_id">
                             <option value="">-- Sin asignar por ahora (podrás asignarla después) --</option>
                             {% for cdp in cdps_disponibles %}
-                            <option value="{{ cdp.id }}">{{ cdp.codigo }}{% if cdp.direccion %} · {{ cdp.direccion }}{% endif %}{% if cdp.red_nombre %} ({{ cdp.red_nombre }}){% endif %}</option>
+                            <option value="{{ cdp.id }}" {% if usuario_data and ((usuario_data.cdp_id is defined and usuario_data.cdp_id|string == cdp.id|string) or (usuario_data.get and usuario_data.get('cdp_id')|string == cdp.id|string)) %}selected{% endif %}>{{ cdp.codigo }}{% if cdp.direccion %} · {{ cdp.direccion }}{% endif %}{% if cdp.red_nombre %} ({{ cdp.red_nombre }}){% endif %}</option>
                             {% endfor %}
                         </select>
                         <span class="material-symbols-outlined input-icon">expand_more</span>
                     </div>
-                    <span class="input-hint">Casas de Paz sin usuario asignado.{% if not cdps_disponibles %} (No hay Casas de Paz disponibles sin usuario){% endif %}</span>
+                    <span class="input-hint">Casas de Paz sin usuario asignado.{% if is_edit and usuario_data and usuario_data.cdp_codigo %} (Actualmente asignado a: <strong>{{ usuario_data.cdp_codigo }}</strong>){% endif %}{% if not cdps_disponibles %} (No hay Casas de Paz disponibles sin usuario){% endif %}</span>
                 </div>
-                {% endif %}
 
                 <div class="form-group full-width">
                     <label for="password">Password</label>
@@ -118,35 +116,5 @@
 {% endblock %}
 
 {% block custom_scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-    const rolSelect = document.getElementById('rol');
-    const grupoRed = document.getElementById('grupo-asignacion-red');
-    const grupoCdp = document.getElementById('grupo-asignacion-cdp');
-
-    function actualizarVisibilidadAsignacion() {
-        if (!rolSelect) return;
-        const rol = rolSelect.value;
-        if (grupoRed) {
-            grupoRed.style.display = (rol === 'supervisor') ? 'block' : 'none';
-            if (rol !== 'supervisor') {
-                const sel = grupoRed.querySelector('select');
-                if (sel) sel.value = '';
-            }
-        }
-        if (grupoCdp) {
-            grupoCdp.style.display = (rol === 'lider_cdp') ? 'block' : 'none';
-            if (rol !== 'lider_cdp') {
-                const sel = grupoCdp.querySelector('select');
-                if (sel) sel.value = '';
-            }
-        }
-    }
-
-    if (rolSelect) {
-        rolSelect.addEventListener('change', actualizarVisibilidadAsignacion);
-        actualizarVisibilidadAsignacion();
-    }
-});
-</script>
+<script src="{{ url_for('static', filename='scripts/admin/form_usuario.js') }}" defer></script>
 {% endblock %}

@@ -1075,8 +1075,7 @@ html[data-theme="dark"],
 
 /* Watermarks (Opacidad ultra reducida para evitar brillo) */
 [data-theme="dark"] .watermark-icon,
-[data-theme="dark"] .watermark-warning,
-[data-theme="dark"] .form-watermark {
+[data-theme="dark"] .watermark-warning {
     opacity: 0.035;
     color: var(--text-main);
 }
@@ -1889,6 +1888,34 @@ html[data-theme="dark"],
 [data-theme="dark"] .modal-actions .btn-cancel:hover {
     background: #2f2225;
 }
+
+/* Control segmentado en formulario de Casa de Paz */
+[data-theme="dark"] .segmented-control {
+    background-color: #181112 !important;
+    border-color: rgba(221, 192, 189, 0.2) !important;
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .segmented-btn {
+    color: #c2adaa !important;
+}
+
+[data-theme="dark"] .segmented-btn:hover {
+    color: #f5ecea !important;
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .segmented-option input[type="radio"]:checked + .segmented-btn {
+    background: linear-gradient(135deg, #420a0e 0%, #260406 100%) !important;
+    color: #ffdad6 !important;
+    border: 1px solid rgba(255, 180, 171, 0.35) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+}
+
+[data-theme="dark"] .segmented-option input[type="radio"]:checked + .segmented-btn .material-symbols-outlined {
+    color: #ffb4ab !important;
+}
+
 
 
 

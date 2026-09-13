@@ -14,16 +14,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles/admin/form.css')}}">
     {% block custom_styles %}{% endblock %}
     <link rel="stylesheet" href="{{ url_for('static', filename='styles/admin/dark_theme.css') }}">
-    <script>
-        (function() {
-            try {
-                var t = localStorage.getItem('theme');
-                if (t === 'dark') {
-                    document.documentElement.setAttribute('data-theme', 'dark');
-                }
-            } catch (e) {}
-        })();
-    </script>
+    <script src="{{ url_for('static', filename='scripts/theme_init.js') }}"></script>
 </head>
 <body>
     
@@ -50,14 +41,53 @@
 
     <main class="main-content">
         <div class="crud-container">
+            {% block breadcrumb %}
             <nav class="breadcrumb">
-                <a href="{{ url_for('admin.estructura') }}">Estructura</a>
+                {% if link == 'usuario' %}
+                    <a href="{{ url_for('admin.usuario') }}">Usuarios</a>
+                {% elif link == 'lider' %}
+                    <a href="{{ url_for('admin.lider') }}">Líderes</a>
+                {% else %}
+                    <a href="{{ url_for('admin.estructura') }}">Estructura</a>
+                {% endif %}
                 <span class="material-symbols-outlined">chevron_right</span>
 
-                {% if request.path == '/admin/' + link %}
-                <span class="current">{{ breadcrumb }}</span>
+                {% if link == 'casa_de_paz' %}
+                    {% if recurso_id or (cdp and cdp.id) %}
+                        {% if '/editar' in request.path %}
+                        <a href="{{ url_for('admin.casa_de_paz', id=recurso_id or cdp.id) }}">{{ breadcrumb }}</a>
+                        {% else %}
+                        <span class="current">{{ breadcrumb }}</span>
+                        {% endif %}
+                    {% else %}
+                        {% if '/crear' in request.path %}
+                        <a href="{{ url_for('admin.estructura') }}">{{ breadcrumb }}</a>
+                        {% else %}
+                        <span class="current">{{ breadcrumb }}</span>
+                        {% endif %}
+                    {% endif %}
+                {% elif link == 'red' %}
+                    {% if '/editar' in request.path or '/crear' in request.path %}
+                    <a href="{{ url_for('admin.estructura') }}">{{ breadcrumb }}</a>
+                    {% else %}
+                    <span class="current">{{ breadcrumb }}</span>
+                    {% endif %}
+                {% elif link == 'lider' %}
+                    {% if '/editar' in request.path or '/crear' in request.path %}
+                    <a href="{{ url_for('admin.lider') }}">{{ breadcrumb }}</a>
+                    {% else %}
+                    <span class="current">{{ breadcrumb }}</span>
+                    {% endif %}
+                {% elif link == 'usuario' %}
+                    {% if '/editar' in request.path or '/crear' in request.path %}
+                    <a href="{{ url_for('admin.usuario') }}">{{ breadcrumb }}</a>
+                    {% else %}
+                    <span class="current">{{ breadcrumb }}</span>
+                    {% endif %}
+                {% elif request.path == '/admin/' + link %}
+                    <span class="current">{{ breadcrumb }}</span>
                 {% else %}
-                <a href="/admin/{{ link }}" class="current">{{ breadcrumb }}</a>
+                    <a href="/admin/{{ link }}">{{ breadcrumb }}</a>
                 {% endif %}
 
                 {% if '/editar' in request.path %}
@@ -68,6 +98,7 @@
                 <span class="current">Crear</span>
                 {% endif %}
             </nav>
+            {% endblock %}
 
             {% block content %}
 
@@ -77,20 +108,7 @@
 
     {% include 'footbar_mobile.html' %}
 
-    <script>
-      // Auto-dismiss toasts after 5 seconds
-      document.addEventListener('DOMContentLoaded', () => {
-        const toasts = document.querySelectorAll('.toast-alert');
-        toasts.forEach(toast => {
-          setTimeout(() => {
-            toast.style.opacity = '0';
-            toast.style.transform = 'translateY(-10px)';
-            toast.style.transition = 'all 0.3s ease';
-            setTimeout(() => toast.remove(), 300);
-          }, 5000);
-        });
-      });
-    </script>
+    <script src="{{ url_for('static', filename='scripts/toast.js') }}" defer></script>
     {% block custom_scripts %}{% endblock %}
 </body>
 </html>

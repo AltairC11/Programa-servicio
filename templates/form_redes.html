@@ -7,22 +7,22 @@
 
 <form class="crud-form" method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-    <span class="material-symbols-outlined form-watermark">nest_eco_leaf</span>
 
     <div class="form-grid">
         
-        <!-- Campo sin ícono: lo envolvemos en input-wrapper para mantener la consistencia del CSS -->
         <div class="form-group full-width">
             <label for="nombre">Nombre de la Red</label>
-            <div class="input-wrapper">
+            <div class="input-wrapper icon-left">
+                <span class="material-symbols-outlined input-icon">hub</span>
                 <input type="text" id="nombre" name="nombre" value="{{ red.nombre if red else '' }}" placeholder="Ej. Red de Crecimiento Norte" required>
             </div>
         </div>
 
-        <!-- Selector: Aplicamos input-wrapper e icon-right -->
+        <!-- Selector: Aplicamos input-wrapper e icon-left/icon-right -->
         <div class="form-group full-width">
             <label for="supervisor_id">Supervisor Asignado</label>
-            <div class="input-wrapper icon-right">
+            <div class="input-wrapper icon-left icon-right">
+                <span class="material-symbols-outlined input-icon">manage_accounts</span>
                 <select id="supervisor_id" name="supervisor_id">
                     <option value="" {% if not red or not red.supervisor_id %}selected{% endif %}>-- Sin supervisor asignado --</option>
                     {% for sup in supervisores_disponibles %}
@@ -101,51 +101,10 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
 
-<script>
-function openDeleteModal() {
-    const modal = document.getElementById('deleteBlockedModal') || document.getElementById('deleteConfirmModal');
-    if (modal) {
-        modal.style.display = 'flex';
-        const input = document.getElementById('deleteInput');
-        const btn = document.getElementById('btnConfirmDelete');
-        if (input && btn) {
-            input.value = '';
-            btn.disabled = true;
-            setTimeout(() => input.focus(), 50);
-        }
-    }
-}
-
-function closeDeleteModal() {
-    document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    const deleteInput = document.getElementById('deleteInput');
-    const btnConfirm = document.getElementById('btnConfirmDelete');
-    if (deleteInput && btnConfirm) {
-        deleteInput.addEventListener('input', () => {
-            btnConfirm.disabled = deleteInput.value.trim().toUpperCase() !== 'ELIMINAR';
-        });
-        deleteInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !btnConfirm.disabled) {
-                e.preventDefault();
-                document.getElementById('formEliminarRed').submit();
-            }
-        });
-    }
-
-    document.querySelectorAll('.modal-overlay').forEach(modal => {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) closeDeleteModal();
-        });
-    });
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeDeleteModal();
-    });
-});
-</script>
+{% block custom_scripts %}
+{% if is_edit %}
+<script src="{{ url_for('static', filename='scripts/admin/form_redes.js') }}" defer></script>
 {% endif %}
 {% endblock %}

@@ -2,21 +2,21 @@
    CABECERA DEL FORMULARIO
    =============================== */
 .form-header {
-    margin-bottom: 2rem;
+    margin-bottom: 1.25rem;
 }
 
 .form-title {
     font-family: var(--font-serif);
-    font-size: 2.25rem;
+    font-size: 1.75rem;
     color: var(--primary);
     font-weight: 700;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
 }
 
 .form-description {
     color: var(--text-muted);
-    font-size: 0.95rem;
-    line-height: 1.6;
+    font-size: 0.875rem;
+    line-height: 1.45;
     max-width: 800px;
 }
 
@@ -28,30 +28,18 @@
     border: 1px solid rgba(137, 114, 111, 0.25); /* Borde un poco más marcado */
     /* Sombra de dos capas: una amplia para profundidad y una corta para definición */
     box-shadow: 0 12px 32px -4px rgba(57, 0, 2, 0.08), 0 4px 12px -2px rgba(57, 0, 2, 0.04); 
-    padding: 2.5rem;
+    padding: 1.75rem 2rem;
     border-radius: 1rem;
     position: relative;
     overflow: hidden;
-    max-width: 900px;
-}
-.form-watermark {
-    position: absolute;
-    bottom: -2rem;
-    left: -2rem;
-    font-size: 250px;
-    opacity: 0.03;
-    color: var(--primary);
-    transform: rotate(12deg);
-    pointer-events: none;
-    z-index: 0;
-    font-variation-settings: 'FILL' 1;
+    max-width: 860px;
 }
 
 /* Sistema de Grid Interno */
 .form-grid {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 1.75rem;
+    gap: 0.9rem 1.25rem;
     position: relative;
     z-index: 10;
 }
@@ -62,36 +50,48 @@
     .half-width { grid-column: span 1; }
 }
 
+@media (max-width: 640px) {
+    .crud-form { padding: 1.25rem; }
+    .form-grid { gap: 0.75rem; }
+}
+
 /* ===============================
    CAMPOS, INPUTS Y TEXTAREAS (Sistema unificado)
    =============================== */
 .form-group label {
     display: block;
     color: var(--primary-wine, #4a0d0d);
-    font-size: 0.75rem; 
+    font-size: 0.72rem; 
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.05em; 
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.3rem;
 }
 
-/* Divisor de secciones del formulario */
-.form-divider {
+/* Divisor y cabecera de secciones del formulario */
+.form-divider,
+.form-section-header {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 0;
-    margin-top: 0.5rem;
-    border-bottom: 2px solid rgba(137, 114, 111, 0.2);
+    gap: 0.4rem;
     color: var(--primary);
-    font-weight: 700;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
+    font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    border-bottom: 1px solid rgba(137, 114, 111, 0.2);
+    padding-bottom: 0.35rem;
+    margin-bottom: 0.85rem;
 }
 
-.form-divider .material-symbols-outlined {
-    font-size: 1.25rem;
+.form-section-header.second-section {
+    margin-top: 1.25rem;
+}
+
+.form-divider .material-symbols-outlined,
+.form-section-header .material-symbols-outlined {
+    font-size: 1.15rem;
+    color: var(--brand-red, #7f1d1d);
 }
 
 /* Estilo general con contraste arreglado */
@@ -101,10 +101,10 @@
     width: 100%;
     background-color: #fcfaf9; /* Fondo levísimamente gris/cálido para contrastar con la tarjeta blanca */
     border: 1px solid rgba(137, 114, 111, 0.4); /* Borde más notorio para delimitar el campo */
-    border-radius: 0.5rem;
-    padding: 0.875rem 1rem;
+    border-radius: 0.45rem;
+    padding: 0.6rem 0.85rem;
     font-family: var(--font-body);
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     color: var(--text-main);
     box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); /* Sombra interior para dar sensación de "hueco" */
     transition: all 0.2s ease-in-out;
@@ -113,7 +113,7 @@
 
 .form-group textarea {
     resize: vertical;
-    min-height: 100px;
+    min-height: 80px;
 }
 
 /* Estados de Hover y Focus */
@@ -153,35 +153,36 @@
 }
 
 /* Ícono a la Izquierda */
-.icon-left .input-icon:first-child { left: 1rem; }
+.icon-left .input-icon:first-child { left: 0.75rem; font-size: 1.15rem; }
 .icon-left input,
-.icon-left select { padding-left: 2.75rem; }
+.icon-left select { padding-left: 2.35rem; }
 
 /* Ícono a la Derecha (Selects estándar) */
-.icon-right .input-icon:last-child { right: 1rem; }
+.icon-right .input-icon:last-child { right: 0.75rem; font-size: 1.15rem; }
 .icon-right input,
-.icon-right select { padding-right: 2.75rem; }
+.icon-right select { padding-right: 2.35rem; }
 
 /* Ambos Íconos (ej: password con candado y ojito) */
-.both-icons .input-icon:first-child { left: 1rem; }
+.both-icons .input-icon:first-child { left: 0.75rem; font-size: 1.15rem; }
 .both-icons .input-icon.clickable {
-    right: 1rem;
+    right: 0.75rem;
+    font-size: 1.15rem;
     pointer-events: auto; /* El usuario puede hacer clic aquí */
     cursor: pointer;
     transition: color 0.2s;
 }
 .both-icons .input-icon.clickable:hover { color: var(--primary); }
 .both-icons input {
-    padding-left: 2.75rem;
-    padding-right: 2.75rem;
+    padding-left: 2.35rem;
+    padding-right: 2.35rem;
 }
 
 /* Texto de ayuda inferior */
 .input-hint {
     display: block;
-    font-size: 0.7rem;
+    font-size: 0.68rem;
     color: var(--text-muted);
-    margin-top: 0.5rem;
+    margin-top: 0.25rem;
     font-style: italic;
 }
 
@@ -189,12 +190,12 @@
    BOTONES DE ACCIÓN
    =============================== */
 .form-actions {
-    margin-top: 2.5rem;
-    padding-top: 2rem;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
     border-top: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1rem;
     position: relative;
     z-index: 10;
     width: 100%;
@@ -223,12 +224,12 @@
 .btn-save {
     background: linear-gradient(to right, var(--primary-container), var(--primary));
     color: white;
-    padding: 0.875rem 2rem;
+    padding: 0.65rem 1.5rem;
     border-radius: 9999px;
     border: none;
     font-family: var(--font-body);
     font-weight: 700;
-    font-size: 0.875rem;
+    font-size: 0.825rem;
     cursor: pointer;
     transition: transform 0.1s, box-shadow 0.2s, opacity 0.2s;
     display: flex;
@@ -249,10 +250,10 @@
     color: var(--text-main); /* Texto más oscuro por defecto */
     font-family: var(--font-body);
     font-weight: 700;
-    font-size: 0.875rem;
+    font-size: 0.825rem;
     border-radius: 9999px;
     cursor: pointer;
-    padding: 0.75rem 1.5rem;
+    padding: 0.6rem 1.25rem;
     transition: all 0.2s;
     text-decoration: none;
     display: inline-flex;
@@ -276,12 +277,12 @@
     color: var(--danger-color, #b32626); /* Conectado a la variable del layout */
     font-family: var(--font-body);
     font-weight: 700;
-    font-size: 0.875rem;
+    font-size: 0.825rem;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    padding: 0.75rem 1.5rem;
+    padding: 0.6rem 1.25rem;
     border-radius: 9999px;
     cursor: pointer;
     transition: background-color 0.2s;
