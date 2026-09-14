@@ -58,7 +58,7 @@ def login():
                 captcha_valido = resultado.get("success", False)
                 puntaje = resultado.get("score", 0.0)
                 accion = resultado.get("action", "")
-                print(f"reCAPTCHA -> Éxito: {captcha_valido} | Puntuación: {puntaje} | Acción: {accion}")
+                current_app.logger.info(f"reCAPTCHA -> Éxito: {captcha_valido} | Puntuación: {puntaje} | Acción: {accion}")
             except Exception as e:
                 current_app.logger.error(f"[reCAPTCHA] Error de conexión: {e}")
                 captcha_valido = False
@@ -74,7 +74,7 @@ def login():
                 try:
                     cur = conn.cursor()
                     cur.execute(
-                        "SELECT id, username, password, tipo_usuario FROM usuario WHERE username = %s",
+                        "SELECT id, username, password, tipo_usuario, is_active FROM usuario WHERE username = %s",
                         (usuario,)
                     )
                     r = cur.fetchone()
@@ -82,6 +82,8 @@ def login():
                     password_valid = bool(r and _check_password(r['password'], contrasena))
                     if not password_valid:
                         p = "Usuario o contraseña incorrectos"
+                    elif not bool(r.get('is_active', 1)):
+                        p = "Esta cuenta se encuentra inactiva o suspendida. Comuníquese con el administrador."
                     else:
                         if r['password'] == contrasena:
                             cur.execute(

@@ -92,7 +92,7 @@ def apply_security_headers(response):
         "font-src 'self' https://fonts.gstatic.com data:; "
         "img-src 'self' data: https:; "
         "connect-src 'self' https://google.com/recaptcha/ https://www.google.com/recaptcha/; "
-        "frame-src https://google.com/recaptcha/ https://www.google.com/ recaptcha/https://recaptcha.google.com/; "
+        "frame-src 'self' https://google.com/recaptcha/ https://www.google.com/recaptcha/ https://recaptcha.google.com/; "
         "frame-ancestors 'self';"
     )
 
